@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/sashabaranov/go-openai"
 	"github.com/gm-agent-org/gm-agent/pkg/llm"
 	"github.com/gm-agent-org/gm-agent/pkg/types"
+	"github.com/sashabaranov/go-openai"
 )
 
 type Provider struct {
