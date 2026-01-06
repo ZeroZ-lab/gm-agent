@@ -1,4 +1,4 @@
-.PHONY: all build run test test-unit test-integration lint clean verify
+.PHONY: all build run test test-unit test-integration lint clean verify hooks
 
 BINARY_NAME=bin/gm
 
@@ -28,6 +28,10 @@ lint:
 
 verify: lint test
 	@echo "Verification Complete."
+
+hooks:
+	@echo "Configuring git hooks..."
+	git config core.hooksPath .githooks
 
 clean:
 	@echo "Cleaning..."

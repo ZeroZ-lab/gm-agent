@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${SKIP_LINT:-}" == "1" ]]; then
+  echo "Skipping lint because SKIP_LINT=1."
+  exit 0
+fi
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+if ! command -v golangci-lint >/dev/null 2>&1; then
+  echo "golangci-lint is not installed. Install it from https://golangci-lint.run/usage/install/." >&2
+  exit 1
+fi
+
+make lint
