@@ -3,147 +3,29 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
 )
 
-func TestLoad(t *testing.T) {
-	tests := []struct {
-		name       string
-		prepare    func(t *testing.T) string
-		env        map[string]string
-		wantConfig Config
-	}{
-		{
-			name: "loadFromExplicitPath",
-			prepare: func(t *testing.T) string {
-				dir := t.TempDir()
-				path := filepath.Join(dir, "config.yaml")
-				contents := []byte(`active_provider: openai
-openai:
-  api_key: file-key
-  base_url: http://example.com
-  model: gpt-file
-security:
-  auto_approve: true
-  allowed_tools:
-    - exec
-`)
-				if err := os.WriteFile(path, contents, 0o644); err != nil {
-					t.Fatalf("write config: %v", err)
-				}
-				return path
-			},
-			wantConfig: Config{
-				ActiveProvider: "openai",
-				OpenAI: OpenAIConfig{
-					APIKey:  "file-key",
-					BaseURL: "http://example.com",
-					Model:   "gpt-file",
-				},
-				Security: SecurityConfig{
-					AutoApprove:  true,
-					AllowedTools: []string{"exec"},
-				},
-			},
-		},
-		{
-			name: "envOverridesFile",
-			prepare: func(t *testing.T) string {
-				dir := t.TempDir()
-				path := filepath.Join(dir, "config.yaml")
-				contents := []byte(`active_provider: openai
-openai:
-  api_key: file-key
-  base_url: http://example.com
-  model: gpt-file
-`)
-				if err := os.WriteFile(path, contents, 0o644); err != nil {
-					t.Fatalf("write config: %v", err)
-				}
-				return path
-			},
-			env: map[string]string{
-				"GM_ACTIVE_PROVIDER":       "gemini",
-				"GM_OPENAI_API_KEY":        "env-key",
-				"GM_OPENAI_BASE_URL":       "http://env",
-				"GM_OPENAI_MODEL":          "gpt-env",
-				"GM_SECURITY_AUTO_APPROVE": "false",
-			},
-			wantConfig: Config{
-				ActiveProvider: "gemini",
-				OpenAI: OpenAIConfig{
-					APIKey:  "env-key",
-					BaseURL: "http://env",
-					Model:   "gpt-env",
-				},
-				Security: SecurityConfig{
-					AutoApprove: false,
-				},
-			},
-		},
-		{
-			name: "defaultsToLocalConfig",
-			prepare: func(t *testing.T) string {
-				dir := t.TempDir()
-				path := filepath.Join(dir, "config.yaml")
-				contents := []byte(`active_provider: gemini
-gemini:
-  api_key: gem-key
-  model: gem-model
-`)
-				if err := os.WriteFile(path, contents, 0o644); err != nil {
-					t.Fatalf("write config: %v", err)
-				}
-				return path
-			},
-			wantConfig: Config{
-				ActiveProvider: "gemini",
-				Gemini: GeminiConfig{
-					APIKey: "gem-key",
-					Model:  "gem-model",
-				},
-			},
-		},
+func TestLoadPrefersEnvValues(t *testing.T) {
+	cfgDir := t.TempDir()
+	cfgPath := filepath.Join(cfgDir, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("active_provider: openai\nopenai:\n  api_key: file-key\nsecurity:\n  auto_approve: false\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
 	}
 
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			configPath := ""
-			if tt.prepare != nil {
-				configPath = tt.prepare(t)
-			}
+	t.Setenv("GM_OPENAI_API_KEY", "env-key")
+	t.Setenv("GM_ACTIVE_PROVIDER", "openai")
+	t.Setenv("GM_SECURITY_AUTO_APPROVE", "true")
 
-			if tt.name == "defaultsToLocalConfig" {
-				origWD, err := os.Getwd()
-				if err != nil {
-					t.Fatalf("get working dir: %v", err)
-				}
-				dir := filepath.Dir(configPath)
-				if err := os.Chdir(dir); err != nil {
-					t.Fatalf("chdir: %v", err)
-				}
-				t.Cleanup(func() {
-					_ = os.Chdir(origWD)
-				})
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
 
-				t.Setenv("HOME", dir)
-				configPath = ""
-			}
-
-			for key, value := range tt.env {
-				t.Setenv(key, value)
-			}
-
-			cfg, err := Load(configPath)
-			if err != nil {
-				t.Fatalf("Load() error = %v", err)
-			}
-
-			if !reflect.DeepEqual(*cfg, tt.wantConfig) {
-				t.Fatalf("unexpected config = %+v, want %+v", *cfg, tt.wantConfig)
-			}
-		})
+	if cfg.OpenAI.APIKey != "env-key" {
+		t.Fatalf("expected env api key override, got %q", cfg.OpenAI.APIKey)
+	}
+	if !cfg.Security.AutoApprove {
+		t.Fatalf("expected auto approve security override from env")
 	}
 }

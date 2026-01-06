@@ -93,6 +93,12 @@ func (r *Runtime) Run(ctx context.Context) error {
 					return err
 				}
 			}
+
+			if step%r.config.CheckpointInterval == 0 {
+				if err := r.checkpoint(ctx); err != nil {
+					r.log.Warn("checkpoint failed", "error", err)
+				}
+			}
 			continue
 		}
 
@@ -103,6 +109,9 @@ func (r *Runtime) Run(ctx context.Context) error {
 		}
 		if goal == nil {
 			r.log.Info("no active goals, runtime finished")
+			if err := r.checkpoint(ctx); err != nil {
+				r.log.Warn("checkpoint failed", "error", err)
+			}
 			return nil
 		}
 
