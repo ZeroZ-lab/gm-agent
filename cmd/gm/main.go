@@ -26,6 +26,19 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
+	// CLI Command Dispatch
+	if len(os.Args) > 1 && os.Args[1] == "clean" {
+		workingDir, _ := os.Getwd()
+		dataDir := filepath.Join(workingDir, ".runtime")
+		logger.Info("Cleaning runtime data...", "path", dataDir)
+		if err := os.RemoveAll(dataDir); err != nil {
+			logger.Error("failed to clean data", "error", err)
+			os.Exit(1)
+		}
+		logger.Info("Cleanup complete")
+		return
+	}
+
 	// 3. Initialize Modules
 	workingDir, _ := os.Getwd()
 	dataDir := filepath.Join(workingDir, ".runtime")
