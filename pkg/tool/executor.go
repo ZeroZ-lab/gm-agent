@@ -72,3 +72,7 @@ func (e *Executor) Execute(ctx context.Context, call *types.ToolCall) (*types.To
 	}
 	return result, nil
 }
+
+func (e *Executor) List() []types.Tool {
+	return e.registry.List()
+}

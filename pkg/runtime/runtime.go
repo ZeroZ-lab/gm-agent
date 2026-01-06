@@ -17,6 +17,7 @@ type Config struct {
 	CheckpointInterval int           `yaml:"checkpoint_interval"`
 	DecisionTimeout    time.Duration `yaml:"decision_timeout"`
 	DispatchTimeout    time.Duration `yaml:"dispatch_timeout"`
+	Model              string        `yaml:"model"` // Active LLM Model Name
 }
 
 var DefaultConfig = Config{
@@ -209,7 +210,7 @@ func (r *Runtime) decide(ctx context.Context, goal *types.Goal) (*Decision, erro
 	// Add System Prompt with Goal
 	sysMsg := types.Message{
 		Role:    "system",
-		Content: fmt.Sprintf("Current Goal: %s (Status: %s)", goal.Description, goal.Status),
+		Content: fmt.Sprintf("You are an autonomous agent. Your goal is: %s (Status: %s). You MUST use the provided tools to make progress. To speak to the user, you MUST use the 'talk' tool. Do not simply output text. When the goal is achieved, you MUST use the 'task_complete' tool to exit.", goal.Description, goal.Status),
 	}
 	// Prepend system message
 	messages = append([]types.Message{sysMsg}, messages...)
@@ -217,9 +218,9 @@ func (r *Runtime) decide(ctx context.Context, goal *types.Goal) (*Decision, erro
 	// Create Command to Call LLM
 	cmd := &types.CallLLMCommand{
 		BaseCommand: types.NewBaseCommand("call_llm"),
-		Model:       "default-model", // Should come from config
+		Model:       r.config.Model,
 		Messages:    messages,
-		// Tools: r.tools.List(), // Need ToolRegistry interface on Runtime
+		Tools:       r.tools.List(),
 	}
 
 	return &Decision{

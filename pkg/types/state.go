@@ -189,6 +189,7 @@ type Message struct {
 
 	// Tool: Result
 	ToolCallID string `json:"tool_call_id,omitempty"`
+	ToolName   string `json:"tool_name,omitempty"` // Required for Gemini
 
 	TokenCount int       `json:"token_count"`
 	Timestamp  time.Time `json:"timestamp"`

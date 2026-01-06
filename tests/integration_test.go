@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gm-agent-org/gm-agent/pkg/config"
 	"github.com/gm-agent-org/gm-agent/pkg/llm"
 	"github.com/gm-agent-org/gm-agent/pkg/llm/mock"
 	"github.com/gm-agent-org/gm-agent/pkg/runtime"
@@ -35,7 +36,10 @@ func TestEndToEnd_Skeleton(t *testing.T) {
 	mockProvider := mock.New("Result is 2")
 	llmGateway := llm.NewGateway(mockProvider)
 	toolRegistry := tool.NewRegistry()
-	toolPolicy := tool.NewPolicy()
+
+	toolPolicy := tool.NewPolicy(config.SecurityConfig{
+		AutoApprove: true, // Allow all for testing
+	})
 	toolExecutor := tool.NewExecutor(toolRegistry, toolPolicy)
 
 	config := runtime.Config{

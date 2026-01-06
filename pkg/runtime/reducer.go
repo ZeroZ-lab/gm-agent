@@ -82,6 +82,9 @@ func (r *Runtime) reducer(state *types.State, event types.Event) (*types.State, 
 			Role:    "assistant",
 			Content: e.Content,
 		}
+		if msg.Content == "" {
+			msg.Content = " " // Hack: Some providers reject empty content
+		}
 		state.Context.Messages = append(state.Context.Messages, msg)
 
 		// If tool calls, generate ToolCall commands?
@@ -107,27 +110,30 @@ func (r *Runtime) reducer(state *types.State, event types.Event) (*types.State, 
 
 	case *types.ToolResultEvent:
 		// Tool finished
-		// Add to context
 		msg := types.Message{
 			Role:       "tool",
 			Content:    e.Output,
 			ToolCallID: e.ToolCallID,
+			ToolName:   e.ToolName,
 		}
 		if !e.Success {
 			msg.Content = fmt.Sprintf("Error: %s", e.Error)
 		}
 		state.Context.Messages = append(state.Context.Messages, msg)
 
-		// After tool result, usually we want LLM to see it and continue.
-		// So we might generate a `CallLLMCommand`?
-		// Or does the Main Loop's `decide` step handle that?
-		// `Run` loop: 2.4 Decide (LLM) calls `decide`.
-		// `decide` looks at State (Goal + Context).
-		// Context now has Tool Result.
-		// `decide` will likely generate `CallLLMCommand`.
-		// So Reducer does NOT need to generate `CallLLMCommand`.
-		// Reducer just updates State. Main Loop `step` continues, sees new State, calls `decide`, which calls LLM.
-		// Correct.
+		// Special Handling: task_complete
+		if e.ToolName == "task_complete" && e.Success {
+			// Find active goal
+			// For MVP, simplistic: Assume first pending/in-progress is targets
+			for i := range state.Goals {
+				if state.Goals[i].Status == types.GoalStatusPending || state.Goals[i].Status == types.GoalStatusInProgress {
+					state.Goals[i].Status = types.GoalStatusCompleted
+					// Don't break if we want to mark all?
+					// For now, mark the current active one as completed.
+					break
+				}
+			}
+		}
 	}
 
 	return state, cmds, nil

@@ -96,6 +96,7 @@ gm-agent/
     -   **Structured Concurrency**: Prefer `errgroup` over raw `go func()` + `WaitGroup` for task groups.
 
 ### 2. Testing Strategy
+-   **Strict Rule**: Every new function must have a corresponding unit test.
 -   **Table-Driven**: Use table-driven tests for all logic. It's the Go standard.
 -   **Black-Box Testing**: Use `package pkg_test` to test public APIs. Avoid testing internal implementation details.
 -   **Race Detection**: CI must run with `-race`.
@@ -123,6 +124,7 @@ gm-agent/
     -   Verify module boundaries in `system-design.md`.
 2.  **Coding Phase**:
     -   Define Interface -> Write Test (Red) -> Implementation (Green).
+    -   **Configuration Sync**: If you add or modify a configuration field, you **MUST** update `.env.example` and `config.yaml.example` immediately.
     -   Run `golangci-lint` locally before committing.
 3.  **Review Phase**:
     -   Check "Security Checklist".

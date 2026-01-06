@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/gm-agent-org/gm-agent/pkg/types"
 )
@@ -31,6 +32,8 @@ func (r *Runtime) dispatch(ctx context.Context, cmds []types.Command) ([]types.E
 		}
 
 		if err != nil {
+			fmt.Printf("Command Execution Failed: %v\n", err)
+			r.log.Error("command execution failed", "command_id", cmd.CommandID(), "error", err)
 			// Generate ErrorEvent
 			errEvent := &types.ErrorEvent{
 				BaseEvent: types.NewBaseEvent("error", "runtime", ""),
@@ -64,6 +67,13 @@ func (r *Runtime) executeCallLLM(ctx context.Context, cmd *types.CallLLMCommand)
 	resp, err := r.llm.Chat(ctx, req)
 	if err != nil {
 		return nil, err
+	}
+
+	// Debug Log
+	r.log.Info("llm response", "content", resp.Content, "tool_calls", len(resp.ToolCalls))
+
+	if resp.Content != "" {
+		fmt.Printf("\nAgent: %s\n", resp.Content)
 	}
 
 	evt := &types.LLMResponseEvent{

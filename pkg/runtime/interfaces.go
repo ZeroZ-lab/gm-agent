@@ -27,6 +27,7 @@ type ChatResponse struct {
 // ToolExecutor defines the interface for tool execution
 type ToolExecutor interface {
 	Execute(ctx context.Context, call *types.ToolCall) (*types.ToolResult, error)
+	List() []types.Tool
 }
 
 // PatchEngine defines the interface for file patching
