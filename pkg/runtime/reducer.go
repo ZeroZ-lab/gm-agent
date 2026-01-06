@@ -1,0 +1,134 @@
+package runtime
+
+import (
+	"context"
+	"fmt"
+	"runtime/debug"
+
+	"github.com/gm-agent-org/gm-agent/pkg/types"
+)
+
+// applyEvent applies the event to state and collects side-effect commands
+func (r *Runtime) applyEvent(ctx context.Context, event types.Event) error {
+	newState, cmds, err := r.safeReduce(ctx, r.state, event)
+	if err != nil {
+		// Log Reducer Error (likely panic)
+		r.log.Error("reducer failed", "error", err)
+		return err // Fatal
+	}
+
+	r.state = newState
+	r.pendingCommands = append(r.pendingCommands, cmds...)
+
+	// Update State in Store (Optimistic save, or wait for checkpoint?)
+	// Architecture spec says: "Store: SaveState... Checkpoint"
+	// `Run` loop calls `checkpoint` periodically.
+	// But `AppendEvent` was called in `dispatch`.
+	// State is in-memory and persisted at checkpoint.
+
+	return nil
+}
+
+// safeReduce wraps reducer with panic recovery
+func (r *Runtime) safeReduce(ctx context.Context, state *types.State, event types.Event) (_ *types.State, _ []types.Command, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			err = fmt.Errorf("reducer panic: %v\nstack: %s", p, debug.Stack())
+		}
+	}()
+	return r.reducer(state, event)
+}
+
+// reducer is the pure function (State, Event) -> (State, Commands)
+func (r *Runtime) reducer(state *types.State, event types.Event) (*types.State, []types.Command, error) {
+	// For MVP, simplistic implementation
+
+	// TODO: Deep copy state ideally?
+	// Go maps are referenced. Modifying `state` directly updates it.
+	// Strict functional reducer would clone state first.
+	// r.state.Clone() needed here. for MVP we mutate in place for now but caution.
+
+	state.Version++
+	state.UpdatedAt = event.EventTimestamp()
+
+	var cmds []types.Command
+
+	switch e := event.(type) {
+	case *types.UserMessageEvent:
+		// User added a message -> Maybe trigger LLM?
+		// Add to context
+		msg := types.Message{
+			Role:    "user",
+			Content: e.Content,
+			// ID, Timestamp...
+		}
+		state.Context.Messages = append(state.Context.Messages, msg)
+
+		// If Semantic is Fork, create new goal?
+		// For now, if no goal, create one?
+		if len(state.Goals) == 0 {
+			goal := types.Goal{
+				ID:          types.GenerateGoalID(),
+				Description: e.Content,
+				Status:      types.GoalStatusPending,
+				Type:        types.GoalTypeUserRequest,
+			}
+			state.Goals = append(state.Goals, goal)
+		}
+
+	case *types.LLMResponseEvent:
+		// LLM replied
+		msg := types.Message{
+			Role:    "assistant",
+			Content: e.Content,
+		}
+		state.Context.Messages = append(state.Context.Messages, msg)
+
+		// If tool calls, generate ToolCall commands?
+		// Wait, LLMResponseEvent in `dispatch` was generated AFTER `CallLLMCommand` executed.
+		// The command execution in `dispatch` produced the Event.
+		// BUT `dispatch` is responsible for commands.
+		// So `CallLLMCommand` -> (LLM Call) -> `LLMResponseEvent`.
+		// Now Reducer sees `LLMResponseEvent`.
+		// Does Reducer generate `ToolCallCommand`?
+		// YES. This is the "Loop".
+		// LLM said "Call Tool X", so we generated an event saying "LLM said this".
+		// Now Reducer should transform "LLM said call X" into "Command: Call X".
+
+		for _, tc := range e.ToolCalls {
+			cmd := &types.CallToolCommand{
+				BaseCommand: types.NewBaseCommand("call_tool"),
+				ToolName:    tc.Name,
+				// Arguments need parsing map string
+				// For now passing generic
+			}
+			cmds = append(cmds, cmd)
+		}
+
+	case *types.ToolResultEvent:
+		// Tool finished
+		// Add to context
+		msg := types.Message{
+			Role:       "tool",
+			Content:    e.Output,
+			ToolCallID: e.ToolCallID,
+		}
+		if !e.Success {
+			msg.Content = fmt.Sprintf("Error: %s", e.Error)
+		}
+		state.Context.Messages = append(state.Context.Messages, msg)
+
+		// After tool result, usually we want LLM to see it and continue.
+		// So we might generate a `CallLLMCommand`?
+		// Or does the Main Loop's `decide` step handle that?
+		// `Run` loop: 2.4 Decide (LLM) calls `decide`.
+		// `decide` looks at State (Goal + Context).
+		// Context now has Tool Result.
+		// `decide` will likely generate `CallLLMCommand`.
+		// So Reducer does NOT need to generate `CallLLMCommand`.
+		// Reducer just updates State. Main Loop `step` continues, sees new State, calls `decide`, which calls LLM.
+		// Correct.
+	}
+
+	return state, cmds, nil
+}

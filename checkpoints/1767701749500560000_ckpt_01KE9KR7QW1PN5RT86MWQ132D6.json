@@ -1,0 +1,42 @@
+{
+  "id": "ckpt_01KE9KR7QW1PN5RT86MWQ132D6",
+  "state_version": 55,
+  "last_event_id": "",
+  "timestamp": "2026-01-06T20:15:49.50056+08:00",
+  "state": {
+    "version": 55,
+    "updated_at": "2026-01-06T20:15:49.490164+08:00",
+    "goals": [
+      {
+        "id": "gol_01KE9KQR2H3TMPTCX584C3J0FB",
+        "type": "user_request",
+        "description": "Test Goal from CLI",
+        "priority": 0,
+        "status": "pending",
+        "source_event_id": "",
+        "max_steps": 0,
+        "steps_used": 0,
+        "created_at": "0001-01-01T00:00:00Z",
+        "updated_at": "0001-01-01T00:00:00Z"
+      }
+    ],
+    "tasks": {},
+    "artifacts": {},
+    "locks": {},
+    "context": {
+      "messages": [
+        {
+          "id": "",
+          "role": "user",
+          "content": "Test Goal from CLI",
+          "token_count": 0,
+          "timestamp": "0001-01-01T00:00:00Z"
+        }
+      ],
+      "total_tokens": 0,
+      "max_tokens": 0,
+      "reserve_output": 0,
+      "compaction_count": 0
+    }
+  }
+}
