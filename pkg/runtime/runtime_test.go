@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"testing"
@@ -98,12 +99,26 @@ func TestApplyEventAndReducer(t *testing.T) {
 		t.Fatalf("expected context to have messages")
 	}
 
-	respEvt := &types.LLMResponseEvent{BaseEvent: types.NewBaseEvent("llm_response", "llm", ""), Content: "", ToolCalls: []types.ToolCall{{Name: "tool"}}}
+	respEvt := &types.LLMResponseEvent{
+		BaseEvent: types.NewBaseEvent("llm_response", "llm", ""),
+		Content:   "",
+		ToolCalls: []types.ToolCall{{ID: "call-1", Name: "tool", Arguments: `{"key":"value"}`}},
+	}
 	if err := rt.applyEvent(context.Background(), respEvt); err != nil {
 		t.Fatalf("apply llm event error: %v", err)
 	}
 	if len(rt.pendingCommands) == 0 {
 		t.Fatalf("expected pending command for tool call")
+	}
+	cmd, ok := rt.pendingCommands[0].(*types.CallToolCommand)
+	if !ok {
+		t.Fatalf("expected CallToolCommand, got %T", rt.pendingCommands[0])
+	}
+	if cmd.ToolCallID != "call-1" {
+		t.Fatalf("expected tool call id to be propagated")
+	}
+	if cmd.Arguments["key"] != "value" {
+		t.Fatalf("expected arguments to be parsed")
 	}
 }
 
@@ -111,13 +126,34 @@ func TestDispatchAndCheckpoint(t *testing.T) {
 	ms := newMockStore()
 	tools := &mockTools{}
 	rt := New(DefaultConfig, ms, mockLLM{}, tools, slog.Default())
-	cmds := []types.Command{&types.CallToolCommand{BaseCommand: types.NewBaseCommand("call_tool"), ToolName: "echo"}}
+	cmds := []types.Command{&types.CallToolCommand{
+		BaseCommand: types.NewBaseCommand("call_tool"),
+		ToolCallID:  "call-1",
+		ToolName:    "echo",
+		Arguments:   map[string]any{"message": "hi"},
+	}}
 	events, err := rt.dispatch(context.Background(), cmds)
 	if err != nil {
 		t.Fatalf("dispatch error: %v", err)
 	}
 	if len(events) != 1 {
 		t.Fatalf("expected one event, got %d", len(events))
+	}
+	if len(tools.executed) != 1 {
+		t.Fatalf("expected tool to be executed")
+	}
+	if tools.executed[0].ID != "call-1" {
+		t.Fatalf("expected tool call id to be set on execution")
+	}
+	var args map[string]any
+	if err := json.Unmarshal([]byte(tools.executed[0].Arguments), &args); err != nil {
+		t.Fatalf("unexpected tool args json: %v", err)
+	}
+	if args["message"] != "hi" {
+		t.Fatalf("expected tool args to be passed through")
+	}
+	if res, ok := events[0].(*types.ToolResultEvent); !ok || res.ToolCallID != "call-1" {
+		t.Fatalf("expected tool result event to include tool call id")
 	}
 	if len(ms.events) != 1 {
 		t.Fatalf("expected events to be persisted")

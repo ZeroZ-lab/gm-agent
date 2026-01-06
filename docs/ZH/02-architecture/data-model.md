@@ -391,8 +391,9 @@ func (c *CallLLMCommand) Execute(ctx context.Context, deps CommandDeps) ([]Event
 // CallToolCommand 调用工具
 type CallToolCommand struct {
     BaseCommand
-    ToolName  string         `json:"tool_name"`
-    Arguments map[string]any `json:"arguments"`
+    ToolCallID string         `json:"tool_call_id,omitempty"`
+    ToolName   string         `json:"tool_name"`
+    Arguments  map[string]any `json:"arguments"`
 }
 
 // ApplyPatchCommand 应用补丁

@@ -118,6 +118,7 @@ gm-agent/
 ## 🛠 Development Workflow
 
 1.  **Thinking Phase (Strict)**:
+    -   **Read Progress First**: At the start of any session, **MUST** read `TASK.md` to understand current project progress.
     -   **Documentation First**: Before ANY code implementation or modification, check `docs/`.
     -   **Update Docs**: If the design is outdated, update the `docs/` FIRST. Code must match the docs.
     -   Update `docs/02-architecture/data-model.md` if data structures change.
@@ -129,6 +130,8 @@ gm-agent/
 3.  **Review Phase**:
     -   Check "Security Checklist".
     -   Verify test coverage for critical paths (Runtime/Store).
+4.  **Wrap-up Phase**:
+    -   **Update Progress**: After completing a task, **MUST** update `TASK.md` to reflect completed items.
 
 ---
 

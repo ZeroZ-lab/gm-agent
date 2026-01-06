@@ -47,7 +47,7 @@
 
 ### 4.2 Command Types
 - `CallLLM`: prompt, tools, stop sequences, budget.
-- `CallTool`: tool name, arguments, policy context.
+- `CallTool`: tool name, `tool_call_id`, arguments, policy context.
 - `ApplyPatch`: diff, dry-run flag, rollback token.
 - `LogArtifact`: path, media type, content hash/URI.
 - `Checkpoint`: snapshot hint.

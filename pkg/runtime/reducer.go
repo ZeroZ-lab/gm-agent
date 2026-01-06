@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"runtime/debug"
 
@@ -79,8 +80,9 @@ func (r *Runtime) reducer(state *types.State, event types.Event) (*types.State, 
 	case *types.LLMResponseEvent:
 		// LLM replied
 		msg := types.Message{
-			Role:    "assistant",
-			Content: e.Content,
+			Role:      "assistant",
+			Content:   e.Content,
+			ToolCalls: e.ToolCalls, // IMPORTANT: Include tool calls in message history
 		}
 		if msg.Content == "" {
 			msg.Content = " " // Hack: Some providers reject empty content
@@ -99,11 +101,17 @@ func (r *Runtime) reducer(state *types.State, event types.Event) (*types.State, 
 		// Now Reducer should transform "LLM said call X" into "Command: Call X".
 
 		for _, tc := range e.ToolCalls {
+			args := map[string]any{}
+			if tc.Arguments != "" {
+				if err := json.Unmarshal([]byte(tc.Arguments), &args); err != nil {
+					args = map[string]any{}
+				}
+			}
 			cmd := &types.CallToolCommand{
 				BaseCommand: types.NewBaseCommand("call_tool"),
+				ToolCallID:  tc.ID,
 				ToolName:    tc.Name,
-				// Arguments need parsing map string
-				// For now passing generic
+				Arguments:   args,
 			}
 			cmds = append(cmds, cmd)
 		}

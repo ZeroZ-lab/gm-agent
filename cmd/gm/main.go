@@ -68,7 +68,7 @@ func main() {
 	// e.g. GM_OPENAI_API_KEY, GM_ACTIVE_PROVIDER
 
 	// Setup LLM Provider
-	llmProvider, err := factory.NewProvider(ctx, cfg)
+	llmProvider, providerID, err := factory.NewProvider(ctx, cfg)
 	if err != nil {
 		logger.Error("failed to create llm provider", "error", err)
 		os.Exit(1)
@@ -103,26 +103,19 @@ func main() {
 	toolExecutor.RegisterHandler("task_complete", tools.HandleTaskComplete)
 
 	// 4. Initialize Runtime
-	config := runtime.DefaultConfig
+	rtConfig := runtime.DefaultConfig
 
-	// Determine Model
-	switch cfg.ActiveProvider {
-	case "gemini":
-		config.Model = cfg.Gemini.Model
-	case "openai":
-		config.Model = cfg.OpenAI.Model
-	}
-	// Fallback if empty in config (though we have defaults/yaml)
-	if config.Model == "" {
-		if cfg.ActiveProvider == "gemini" {
-			config.Model = "gemini-2.0-flash"
-		} else {
-			config.Model = "deepseek-chat"
-		}
+	// Get model from active provider options
+	_, opts, err := cfg.GetActiveProvider()
+	if err == nil && opts.Model != "" {
+		rtConfig.Model = opts.Model
+	} else {
+		// Fallback default
+		rtConfig.Model = "gemini-2.0-flash"
 	}
 
-	logger.Info("Initializing Runtime", "provider", cfg.ActiveProvider, "model", config.Model)
-	rt := runtime.New(config, fsStore, llmGateway, toolExecutor, logger)
+	logger.Info("Initializing Runtime", "provider", providerID, "model", rtConfig.Model)
+	rt := runtime.New(rtConfig, fsStore, llmGateway, toolExecutor, logger)
 
 	// 5. Run
 	logger.Info("gm-agent starting...")

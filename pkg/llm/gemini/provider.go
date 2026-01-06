@@ -5,18 +5,25 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/gm-agent-org/gm-agent/pkg/config"
 	"github.com/gm-agent-org/gm-agent/pkg/llm"
 	"github.com/gm-agent-org/gm-agent/pkg/types"
 	"google.golang.org/genai"
 )
 
-type Provider struct {
-	client *genai.Client
-	config config.GeminiConfig
+// Config contains Gemini-specific configuration.
+type Config struct {
+	APIKey    string
+	ProjectID string
+	Location  string
+	Model     string
 }
 
-func New(ctx context.Context, cfg config.GeminiConfig) (*Provider, error) {
+type Provider struct {
+	client *genai.Client
+	config Config
+}
+
+func New(ctx context.Context, cfg Config) (*Provider, error) {
 	clientConfig := &genai.ClientConfig{
 		APIKey:  cfg.APIKey,
 		Backend: genai.BackendGeminiAPI, // Default to Gemini API

@@ -10,26 +10,22 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type Config struct {
-	ActiveProvider string         `yaml:"active_provider" envconfig:"ACTIVE_PROVIDER"` // "openai" or "gemini"
-	OpenAI         OpenAIConfig   `yaml:"openai" envconfig:"OPENAI"`
-	Gemini         GeminiConfig   `yaml:"gemini" envconfig:"GEMINI"`
-	Security       SecurityConfig `yaml:"security" envconfig:"SECURITY"`
+// ProviderConfig represents configuration for a single LLM provider.
+type ProviderConfig struct {
+	Options ProviderOptions `yaml:"options" json:"options"`
 }
 
-type OpenAIConfig struct {
-	APIKey  string `yaml:"api_key" envconfig:"API_KEY"`
-	BaseURL string `yaml:"base_url" envconfig:"BASE_URL"`
-	Model   string `yaml:"model" envconfig:"MODEL"`
+// ProviderOptions contains the SDK-level options for a provider.
+type ProviderOptions struct {
+	APIKey    string `yaml:"apiKey" json:"apiKey" envconfig:"API_KEY"`
+	BaseURL   string `yaml:"baseURL" json:"baseURL" envconfig:"BASE_URL"`
+	Model     string `yaml:"model" json:"model" envconfig:"MODEL"`
+	ProjectID string `yaml:"projectID" json:"projectID" envconfig:"PROJECT_ID"` // For Vertex AI
+	Location  string `yaml:"location" json:"location" envconfig:"LOCATION"`     // For Vertex AI
+	Timeout   int    `yaml:"timeout" json:"timeout" envconfig:"TIMEOUT"`        // Request timeout in ms
 }
 
-type GeminiConfig struct {
-	APIKey    string `yaml:"api_key" envconfig:"API_KEY"`
-	ProjectID string `yaml:"project_id" envconfig:"PROJECT_ID"`
-	Location  string `yaml:"location" envconfig:"LOCATION"`
-	Model     string `yaml:"model" envconfig:"MODEL"`
-}
-
+// SecurityConfig contains security-related settings.
 type SecurityConfig struct {
 	AutoApprove     bool     `yaml:"auto_approve" envconfig:"AUTO_APPROVE"`
 	AllowedTools    []string `yaml:"allowed_tools" envconfig:"ALLOWED_TOOLS"`
@@ -38,14 +34,206 @@ type SecurityConfig struct {
 	WorkspaceRoot   string   `yaml:"workspace_root" envconfig:"WORKSPACE_ROOT"`
 }
 
+// Config is the root configuration structure.
+type Config struct {
+	// ActiveProvider explicitly sets the active provider (optional).
+	// If not set, auto-detection is used based on available API keys.
+	ActiveProvider string `yaml:"active_provider" envconfig:"ACTIVE_PROVIDER"`
+
+	// Providers is a map of provider ID to its configuration.
+	Providers map[string]ProviderConfig `yaml:"provider"`
+
+	// Security settings.
+	Security SecurityConfig `yaml:"security" envconfig:"SECURITY"`
+}
+
+// ProviderEnvVars maps provider IDs to their environment variable names for auto-detection.
+// The first env var in the list that is set will be used.
+var ProviderEnvVars = map[string]struct {
+	APIKey  []string
+	BaseURL []string
+	Model   []string
+}{
+	"gemini": {
+		APIKey: []string{"GEMINI_API_KEY", "GOOGLE_API_KEY"},
+		Model:  []string{"GEMINI_MODEL"},
+	},
+	"openai": {
+		APIKey:  []string{"OPENAI_API_KEY"},
+		BaseURL: []string{"OPENAI_API_BASE", "OPENAI_BASE_URL"},
+		Model:   []string{"OPENAI_MODEL"},
+	},
+	"anthropic": {
+		APIKey: []string{"ANTHROPIC_API_KEY"},
+		Model:  []string{"ANTHROPIC_MODEL"},
+	},
+	"deepseek": {
+		APIKey: []string{"DEEPSEEK_API_KEY"},
+		Model:  []string{"DEEPSEEK_MODEL"},
+	},
+}
+
+// ProviderDefaults contains default options for each provider.
+var ProviderDefaults = map[string]ProviderOptions{
+	"gemini": {
+		Model: "gemini-2.0-flash",
+	},
+	"openai": {
+		BaseURL: "https://api.openai.com/v1",
+		Model:   "gpt-4o",
+	},
+	"deepseek": {
+		BaseURL: "https://api.deepseek.com",
+		Model:   "deepseek-chat",
+	},
+	"anthropic": {
+		Model: "claude-sonnet-4-20250514",
+	},
+}
+
+// GetActiveProvider returns the active provider ID and its configuration.
+// Priority: ActiveProvider field > First provider with API key in env > First configured provider.
+func (c *Config) GetActiveProvider() (string, ProviderOptions, error) {
+	// 1. Explicit ActiveProvider
+	if c.ActiveProvider != "" {
+		if p, ok := c.Providers[c.ActiveProvider]; ok {
+			opts := mergeOptions(ProviderDefaults[c.ActiveProvider], p.Options)
+			return c.ActiveProvider, opts, nil
+		}
+		// Check if we can auto-configure from env
+		if opts, ok := c.detectProviderFromEnv(c.ActiveProvider); ok {
+			return c.ActiveProvider, opts, nil
+		}
+		return "", ProviderOptions{}, fmt.Errorf("active provider %q not configured", c.ActiveProvider)
+	}
+
+	// 2. Auto-detect from environment variables (ordered: gemini first)
+	for _, providerID := range []string{"gemini", "openai", "deepseek", "anthropic"} {
+		envVars, ok := ProviderEnvVars[providerID]
+		if !ok {
+			continue
+		}
+		// Check if any API key env var is set
+		var apiKey string
+		for _, envVar := range envVars.APIKey {
+			if v := os.Getenv(envVar); v != "" {
+				apiKey = v
+				break
+			}
+		}
+		if apiKey == "" {
+			continue
+		}
+
+		opts := ProviderDefaults[providerID]
+		opts.APIKey = apiKey
+
+		// Check for BaseURL env var
+		for _, envVar := range envVars.BaseURL {
+			if v := os.Getenv(envVar); v != "" {
+				opts.BaseURL = v
+				break
+			}
+		}
+
+		// Check for Model env var
+		for _, envVar := range envVars.Model {
+			if v := os.Getenv(envVar); v != "" {
+				opts.Model = v
+				break
+			}
+		}
+
+		// Merge with config if exists
+		if p, ok := c.Providers[providerID]; ok {
+			opts = mergeOptions(opts, p.Options)
+		}
+		return providerID, opts, nil
+	}
+
+	// 3. First configured provider with API key
+	for providerID, p := range c.Providers {
+		if p.Options.APIKey != "" {
+			opts := mergeOptions(ProviderDefaults[providerID], p.Options)
+			return providerID, opts, nil
+		}
+	}
+
+	return "", ProviderOptions{}, fmt.Errorf("no provider configured or detected")
+}
+
+// detectProviderFromEnv checks if a provider can be configured from environment variables.
+func (c *Config) detectProviderFromEnv(providerID string) (ProviderOptions, bool) {
+	envVars, ok := ProviderEnvVars[providerID]
+	if !ok {
+		return ProviderOptions{}, false
+	}
+
+	// Check if any API key env var is set
+	var apiKey string
+	for _, envVar := range envVars.APIKey {
+		if v := os.Getenv(envVar); v != "" {
+			apiKey = v
+			break
+		}
+	}
+	if apiKey == "" {
+		return ProviderOptions{}, false
+	}
+
+	opts := ProviderDefaults[providerID]
+	opts.APIKey = apiKey
+
+	// Check for BaseURL env var
+	for _, envVar := range envVars.BaseURL {
+		if v := os.Getenv(envVar); v != "" {
+			opts.BaseURL = v
+			break
+		}
+	}
+
+	// Check for Model env var
+	for _, envVar := range envVars.Model {
+		if v := os.Getenv(envVar); v != "" {
+			opts.Model = v
+			break
+		}
+	}
+
+	// Merge with config if exists
+	if p, ok := c.Providers[providerID]; ok {
+		opts = mergeOptions(opts, p.Options)
+	}
+
+	return opts, true
+}
+
+// mergeOptions merges two ProviderOptions, with 'override' taking precedence.
+func mergeOptions(base, override ProviderOptions) ProviderOptions {
+	result := base
+	if override.APIKey != "" {
+		result.APIKey = override.APIKey
+	}
+	if override.BaseURL != "" {
+		result.BaseURL = override.BaseURL
+	}
+	if override.Model != "" {
+		result.Model = override.Model
+	}
+	if override.ProjectID != "" {
+		result.ProjectID = override.ProjectID
+	}
+	if override.Location != "" {
+		result.Location = override.Location
+	}
+	if override.Timeout != 0 {
+		result.Timeout = override.Timeout
+	}
+	return result
+}
+
 // Load reads configuration from the specified path, or defaults if path is empty.
-// It prioritizes:
-// 1. Env Vars (handled by caller currently, or we can merge here)
-// 2. Config File
-// Load reads configuration from the specified path, or defaults if path is empty.
-// It prioritizes:
-// 1. Env Vars (handled by caller or loaded from .env)
-// 2. Config File
+// Priority: Env Vars > Config File > Defaults
 func Load(path string) (*Config, error) {
 	// Try loading .env files (ignore error if not present)
 	_ = godotenv.Load(".env.local")
@@ -68,7 +256,9 @@ func Load(path string) (*Config, error) {
 		}
 	}
 
-	cfg := &Config{}
+	cfg := &Config{
+		Providers: make(map[string]ProviderConfig),
+	}
 
 	if path != "" {
 		data, err := os.ReadFile(path)

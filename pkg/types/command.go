@@ -54,8 +54,9 @@ type CallLLMCommand struct {
 // CallToolCommand
 type CallToolCommand struct {
 	BaseCommand
-	ToolName  string         `json:"tool_name"`
-	Arguments map[string]any `json:"arguments"`
+	ToolCallID string         `json:"tool_call_id,omitempty"`
+	ToolName   string         `json:"tool_name"`
+	Arguments  map[string]any `json:"arguments"`
 }
 
 // ApplyPatchCommand

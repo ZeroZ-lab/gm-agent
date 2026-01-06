@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/gm-agent-org/gm-agent/pkg/types"
@@ -87,10 +88,19 @@ func (r *Runtime) executeCallLLM(ctx context.Context, cmd *types.CallLLMCommand)
 }
 
 func (r *Runtime) executeCallTool(ctx context.Context, cmd *types.CallToolCommand) ([]types.Event, error) {
+	argsJSON := "{}"
+	if cmd.Arguments != nil {
+		encoded, err := json.Marshal(cmd.Arguments)
+		if err != nil {
+			return nil, fmt.Errorf("marshal tool arguments: %w", err)
+		}
+		argsJSON = string(encoded)
+	}
+
 	call := &types.ToolCall{
-		// ID: assign? Or use command ID?
+		ID:        cmd.ToolCallID,
 		Name:      cmd.ToolName,
-		Arguments: "{}", // TODO: Marshal map[string]any to string
+		Arguments: argsJSON,
 	}
 
 	result, err := r.tools.Execute(ctx, call)
@@ -99,16 +109,30 @@ func (r *Runtime) executeCallTool(ctx context.Context, cmd *types.CallToolComman
 	if err != nil {
 		resEvent = &types.ToolResultEvent{
 			BaseEvent: types.NewBaseEvent("tool_result", "tool", cmd.ToolName),
+			ToolCallID: cmd.ToolCallID,
 			ToolName:  cmd.ToolName,
 			Success:   false,
 			Error:     err.Error(),
 		}
 	} else {
+		if result != nil && result.IsError {
+			resEvent = &types.ToolResultEvent{
+				BaseEvent:  types.NewBaseEvent("tool_result", "tool", cmd.ToolName),
+				ToolCallID: cmd.ToolCallID,
+				ToolName:   cmd.ToolName,
+				Success:    false,
+				Error:      result.Error,
+				Output:     result.Content,
+			}
+			return []types.Event{resEvent}, nil
+		}
+
 		resEvent = &types.ToolResultEvent{
-			BaseEvent: types.NewBaseEvent("tool_result", "tool", cmd.ToolName),
-			ToolName:  cmd.ToolName,
-			Success:   true,
-			Output:    result.Content,
+			BaseEvent:  types.NewBaseEvent("tool_result", "tool", cmd.ToolName),
+			ToolCallID: cmd.ToolCallID,
+			ToolName:   cmd.ToolName,
+			Success:    true,
+			Output:     result.Content,
 		}
 	}
 	return []types.Event{resEvent}, nil

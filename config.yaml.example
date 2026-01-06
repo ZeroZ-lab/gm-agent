@@ -1,23 +1,38 @@
-# Active Provider: Select which LLM provider to use ("gemini" or "openai")
-active_provider: "gemini"
+# Active Provider: Select which LLM provider to use.
+# If not set, auto-detection is used based on available API keys in environment.
+# active_provider: "gemini"
 
-# Gemini Configuration
-gemini:
-  api_key: "your_gemini_api_key_here"
-  model: "gemini-2.0-flash"
-  # project_id: "" # Optional: Google Cloud Project ID for Vertex AI
-  # location: ""   # Optional: Region for Vertex AI (e.g., us-central1)
+# Provider Configuration
+# Each provider has its own options section.
+provider:
+  gemini:
+    options:
+      apiKey: "your_gemini_api_key_here"
+      model: "gemini-2.0-flash"
+      # projectID: "" # Optional: Google Cloud Project ID for Vertex AI
+      # location: ""  # Optional: Region for Vertex AI (e.g., us-central1)
 
-# OpenAI Configuration
-openai:
-  api_key: "your_openai_api_key_here"
-  base_url: "https://api.openai.com/v1"
-  model: "gpt-4o"
+  openai:
+    options:
+      apiKey: "your_openai_api_key_here"
+      baseURL: "https://api.openai.com/v1"
+      model: "gpt-4o"
+
+  deepseek:
+    options:
+      apiKey: "your_deepseek_api_key_here"
+      baseURL: "https://api.deepseek.com"
+      model: "deepseek-chat"
+
+  anthropic:
+    options:
+      apiKey: "your_anthropic_api_key_here"
+      model: "claude-sonnet-4-20250514"
 
 # Security Policy (Sandbox Settings)
 security:
   auto_approve: false        # If true, tools execute without user confirmation. Use with caution.
-  allowed_tools: []          # Whitelist of allowed tool names. Empty list logic depends on implementation (typically allows all if empty unless strict mode).
+  allowed_tools: []          # Whitelist of allowed tool names.
   allow_fs: true             # Allow filesystem operations (read_file, etc.)
   allow_net: true            # Allow network operations
   workspace_root: "."        # Path to restrict filesystem access to (jail root).

@@ -41,6 +41,12 @@ func (p *Provider) Call(ctx context.Context, req *llm.ProviderRequest) (*llm.Pro
 		return nil, fmt.Errorf("convert messages: %w", err)
 	}
 
+	// DEBUG: Print messages for debugging
+	for i, m := range msgs {
+		fmt.Printf("DEBUG msg[%d]: role=%s content=%q toolcalls=%d toolcallid=%s\n",
+			i, m.Role, m.Content, len(m.ToolCalls), m.ToolCallID)
+	}
+
 	// 2. Convert Tools
 	tools := convertTools(req.Tools)
 
@@ -76,9 +82,18 @@ func (p *Provider) Call(ctx context.Context, req *llm.ProviderRequest) (*llm.Pro
 func convertMessages(msgs []types.Message) ([]openai.ChatCompletionMessage, error) {
 	var result []openai.ChatCompletionMessage
 	for _, m := range msgs {
+		// Ensure content is never empty for API compatibility
+		// go-openai uses `omitempty` on Content field, so empty string gets omitted
+		// DeepSeek API requires content field to be present
+		content := m.Content
+		if content == "" {
+			// Use a single space as placeholder to ensure field is serialized
+			content = " "
+		}
+
 		msg := openai.ChatCompletionMessage{
 			Role:    m.Role,
-			Content: m.Content,
+			Content: content,
 		}
 
 		// If tool result, we need ToolCallID
