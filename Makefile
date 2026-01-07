@@ -1,41 +1,32 @@
 .PHONY: all build run test test-unit test-integration lint clean verify hooks
 
-BINARY_NAME=bin/gm
+AGENT_DIR=packages/agent
 
 all: build
 
 build:
-	@echo "Building..."
-	go build -o $(BINARY_NAME) ./cmd/gm
+	@$(MAKE) -C $(AGENT_DIR) build
 
-run: build
-	@echo "Running..."
-	./$(BINARY_NAME)
+run:
+	@$(MAKE) -C $(AGENT_DIR) run
 
-test: test-unit test-integration
+test:
+	@$(MAKE) -C $(AGENT_DIR) test
 
 test-unit:
-	@echo "Running Unit Tests..."
-	go test -v -race ./pkg/...
+	@$(MAKE) -C $(AGENT_DIR) test-unit
 
 test-integration:
-	@echo "Running Integration Tests..."
-	go test -v ./tests/...
+	@$(MAKE) -C $(AGENT_DIR) test-integration
 
 lint:
-	@echo "Linting..."
-	golangci-lint run
+	@$(MAKE) -C $(AGENT_DIR) lint
 
-verify: lint test
-	@echo "Verification Complete."
+verify:
+	@$(MAKE) -C $(AGENT_DIR) verify
 
 hooks:
-	@echo "Configuring git hooks..."
-	git config core.hooksPath .githooks
+	@$(MAKE) -C $(AGENT_DIR) hooks
 
 clean:
-	@echo "Cleaning..."
-	go clean
-	rm -f $(BINARY_NAME)
-	rm -f coverage.out
-	rm -rf .runtime/
+	@$(MAKE) -C $(AGENT_DIR) clean

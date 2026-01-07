@@ -16,9 +16,11 @@ jobs:
         with:
           go-version: '1.25.5'
           cache: true
+          cache-dependency-path: packages/agent/go.sum
 
       - name: Run unit tests
         run: go test ./...
+        working-directory: packages/agent
 
   integration:
     runs-on: ubuntu-latest
@@ -31,9 +33,11 @@ jobs:
         with:
           go-version: '1.25.5'
           cache: true
+          cache-dependency-path: packages/agent/go.sum
 
       - name: Run integration tests
         run: go test -tags=integration ./...
+        working-directory: packages/agent
 
   e2e:
     runs-on: ubuntu-latest
@@ -46,6 +50,8 @@ jobs:
         with:
           go-version: '1.25.5'
           cache: true
+          cache-dependency-path: packages/agent/go.sum
 
       - name: Run end-to-end tests
         run: go test -tags=e2e ./tests
+        working-directory: packages/agent
