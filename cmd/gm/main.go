@@ -2,21 +2,25 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/gm-agent-org/gm-agent/pkg/agent/tools" // Moved to avoid "duplicate" interpretation, though it was not duplicated.
+	"github.com/gm-agent-org/gm-agent/pkg/api"
 	"github.com/gm-agent-org/gm-agent/pkg/config"
 	"github.com/gm-agent-org/gm-agent/pkg/llm"
 	"github.com/gm-agent-org/gm-agent/pkg/llm/factory"
 	"github.com/gm-agent-org/gm-agent/pkg/runtime"
 	"github.com/gm-agent-org/gm-agent/pkg/store"
 	"github.com/gm-agent-org/gm-agent/pkg/tool"
-	"github.com/gm-agent-org/gm-agent/pkg/types"
 )
 
 func main() {
@@ -28,22 +32,41 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
+	if err := run(ctx, os.Args[1:]); err != nil {
+		logger.Error("gm-agent exited with error", "error", err)
+		os.Exit(1)
+	}
+}
+
+func run(ctx context.Context, args []string) error {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	slog.SetDefault(logger)
+
 	// CLI Flags
-	configPath := flag.String("config", "", "Path to configuration file")
-	flag.Parse()
+	flagSet := flag.NewFlagSet("gm", flag.ContinueOnError)
+	configPath := flagSet.String("config", "", "Path to configuration file")
+	if err := flagSet.Parse(args); err != nil {
+		return err
+	}
+
+	remaining := flagSet.Args()
+	mode := ""
+	if len(remaining) > 0 {
+		mode = remaining[0]
+	}
 
 	// CLI Command Dispatch
 	// Handle "clean" command
-	if flag.Arg(0) == "clean" {
+	if mode == "clean" {
 		workingDir, _ := os.Getwd()
 		dataDir := filepath.Join(workingDir, ".runtime")
 		logger.Info("Cleaning runtime data...", "path", dataDir)
 		if err := os.RemoveAll(dataDir); err != nil {
 			logger.Error("failed to clean data", "error", err)
-			os.Exit(1)
+			return fmt.Errorf("clean runtime data: %w", err)
 		}
 		logger.Info("Cleanup complete")
-		return
+		return nil
 	}
 
 	// 3. Initialize Modules
@@ -53,7 +76,7 @@ func main() {
 
 	if err := fsStore.Open(ctx); err != nil {
 		logger.Error("failed to open store", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("open store: %w", err)
 	}
 	defer fsStore.Close()
 
@@ -63,15 +86,25 @@ func main() {
 	if err != nil {
 		logger.Warn("failed to load config", "error", err)
 	}
+	if cfg == nil {
+		cfg = &config.Config{}
+	}
 
 	// Env Vars are now automatically merged by config.Load() using "GM_" prefix.
 	// e.g. GM_OPENAI_API_KEY, GM_ACTIVE_PROVIDER
+
+	if cfg.HTTP.Addr == "" {
+		cfg.HTTP.Addr = ":8080"
+	}
+
+	logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: parseLogLevel(cfg.LogLevel)}))
+	slog.SetDefault(logger)
 
 	// Setup LLM Provider
 	llmProvider, providerID, err := factory.NewProvider(ctx, cfg)
 	if err != nil {
 		logger.Error("failed to create llm provider", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("create llm provider: %w", err)
 	}
 	llmGateway := llm.NewGateway(llmProvider)
 
@@ -114,32 +147,54 @@ func main() {
 		rtConfig.Model = "gemini-2.0-flash"
 	}
 
-	logger.Info("Initializing Runtime", "provider", providerID, "model", rtConfig.Model)
-	rt := runtime.New(rtConfig, fsStore, llmGateway, toolExecutor, logger)
-
 	// 5. Run
 	logger.Info("gm-agent starting...")
 
-	// CLI Argument Handling (Simple One-Shot Goal)
-	args := flag.Args()
-	if len(args) > 0 && args[0] != "clean" { // "clean" handled above, but just in case
-		goal := args[0]
-		logger.Info("received goal from cli", "goal", goal)
+	sessionFactory := func(sessionID string) (*api.SessionResources, error) {
+		sessionCtx, cancel := context.WithCancel(ctx)
+		sessionDir := filepath.Join(dataDir, "sessions", sessionID)
+		sessionStore := store.NewFSStore(sessionDir)
+		if err := sessionStore.Open(sessionCtx); err != nil {
+			cancel()
+			return nil, err
+		}
 
-		event := &types.UserMessageEvent{
-			BaseEvent: types.NewBaseEvent("user_request", "user", "cli"),
-			Content:   goal,
-			Priority:  10,
-		}
-		if err := rt.Ingest(ctx, event); err != nil {
-			logger.Error("failed to ingest goal", "error", err)
-			os.Exit(1)
-		}
+		rt := runtime.New(rtConfig, sessionStore, llmGateway, toolExecutor, logger)
+		return &api.SessionResources{Runtime: rt, Store: sessionStore, Ctx: sessionCtx, Cancel: cancel}, nil
 	}
 
-	if err := rt.Run(ctx); err != nil {
-		logger.Error("runtime exited with error", "error", err)
-		os.Exit(1)
+	apiCfg := api.HTTPConfig{Enable: cfg.HTTP.Enable, Addr: cfg.HTTP.Addr, APIKey: cfg.HTTP.APIKey}
+	server := api.NewServer(ctx, apiCfg, sessionFactory, logger)
+	httpSrv := &http.Server{Addr: cfg.HTTP.Addr, Handler: server.Engine}
+
+	go func() {
+		<-ctx.Done()
+		_ = httpSrv.Shutdown(context.Background())
+	}()
+
+	logger.Info("http api listening", "addr", cfg.HTTP.Addr, "provider", providerID, "model", rtConfig.Model)
+	if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		logger.Error("http server error", "error", err)
+		return fmt.Errorf("http server: %w", err)
 	}
-	logger.Info("gm-agent finished successfully")
+	logger.Info("http api stopped")
+	return nil
+}
+
+func parseLogLevel(level string) slog.Level {
+	normalized := strings.ToUpper(strings.TrimSpace(level))
+	switch normalized {
+	case "DEBUG":
+		return slog.LevelDebug
+	case "VERBOSE":
+		return slog.LevelDebug
+	case "WARN", "WARNING":
+		return slog.LevelWarn
+	case "ERROR":
+		return slog.LevelError
+	case "INFO", "":
+		return slog.LevelInfo
+	default:
+		return slog.LevelInfo
+	}
 }

@@ -65,6 +65,8 @@
 - [ ] GitHub Actions CI
 
 ### Phase 9: 高级功能
+- [x] 基于 Gin 的 HTTP API（含 OpenAPI 输出）
+- [x] 默认 API 模式启动与日志等级配置
 - [ ] Sub-Agent 编排
 - [ ] Skill 系统
 - [ ] Scheme 解释器

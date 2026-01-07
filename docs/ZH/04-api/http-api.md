@@ -1,55 +1,36 @@
 # HTTP API
 
-> RESTful API（Phase 4）
+> 基于 Gin 的 REST 接口，提供 CS 架构入口
 
 ---
 
-## 1. 范围
-
-MVP 阶段不提供 HTTP API。此文档用于预留接口规范。
-
----
-
-## 2. 基础约定
+## 1. 基础约定
 
 - Base URL: `/api/v1`
-- 认证：Bearer Token
-- 请求/响应：JSON
+- 认证：`X-API-Key` 头（可选，关闭则匿名访问）
+- 请求/响应：JSON，统一 envelop（`data` / `error`）风格与 OpenCode 对齐
 
 ---
 
-## 3. 预留端点
+## 2. 端点
 
-### 3.1 健康检查
+- `POST /api/v1/sessions`：创建新会话，传入 `prompt` 作为初始目标。
+- `GET /api/v1/sessions/{id}`：查询会话状态与最新状态快照。
+- `GET /api/v1/sessions/{id}/events`：查看事件流，支持 `after` 游标。
+- `POST /api/v1/sessions/{id}/cancel`：请求取消/打断运行。
 
-```
-GET /api/v1/health
-```
+### OpenAPI
+- `GET /api/openapi.json`：OpenAPI 3.0 规格文档，便于 SDK/前端生成。
 
-### 3.2 任务执行
-
-```
-POST /api/v1/tasks
-```
-
-请求体：
-
-```json
-{
-  "prompt": "重构这个函数",
-  "model": "openai/gpt-4"
-}
-```
+### 健康检查
+- `GET /healthz`：存活探针。
 
 ---
 
-## 4. 错误格式
+## 3. 错误格式
 
 ```json
 {
-  "error": {
-    "code": "INVALID_ARGUMENT",
-    "message": "missing prompt"
-  }
+  "error": "invalid api key"
 }
 ```
