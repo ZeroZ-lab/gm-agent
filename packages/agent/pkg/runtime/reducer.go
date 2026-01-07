@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"runtime/debug"
 
 	"github.com/gm-agent-org/gm-agent/pkg/types"
@@ -55,6 +56,10 @@ func (r *Runtime) reducer(state *types.State, event types.Event) (*types.State, 
 	var cmds []types.Command
 
 	switch e := event.(type) {
+	case *types.SystemPromptEvent:
+		// Update System Prompt configuration
+		state.SystemPrompt = e.Prompt
+
 	case *types.UserMessageEvent:
 		// User added a message -> Maybe trigger LLM?
 		// Add to context
@@ -65,9 +70,17 @@ func (r *Runtime) reducer(state *types.State, event types.Event) (*types.State, 
 		}
 		state.Context.Messages = append(state.Context.Messages, msg)
 
-		// If Semantic is Fork, create new goal?
-		// For now, if no goal, create one?
-		if len(state.Goals) == 0 {
+		// Check if there's any active (pending or in-progress) goal
+		hasActiveGoal := false
+		for _, g := range state.Goals {
+			if g.Status == types.GoalStatusPending || g.Status == types.GoalStatusInProgress {
+				hasActiveGoal = true
+				break
+			}
+		}
+
+		// If no active goal, create one for this user message
+		if !hasActiveGoal {
 			goal := types.Goal{
 				ID:          types.GenerateGoalID(),
 				Description: e.Content,
@@ -89,17 +102,20 @@ func (r *Runtime) reducer(state *types.State, event types.Event) (*types.State, 
 		}
 		state.Context.Messages = append(state.Context.Messages, msg)
 
-		// If tool calls, generate ToolCall commands?
-		// Wait, LLMResponseEvent in `dispatch` was generated AFTER `CallLLMCommand` executed.
-		// The command execution in `dispatch` produced the Event.
-		// BUT `dispatch` is responsible for commands.
-		// So `CallLLMCommand` -> (LLM Call) -> `LLMResponseEvent`.
-		// Now Reducer sees `LLMResponseEvent`.
-		// Does Reducer generate `ToolCallCommand`?
-		// YES. This is the "Loop".
-		// LLM said "Call Tool X", so we generated an event saying "LLM said this".
-		// Now Reducer should transform "LLM said call X" into "Command: Call X".
+		// If LLM responded with content but NO tool calls, this is a direct response
+		// The user will receive the content from the llm_response event via streaming
+		// Mark the current goal as complete since the LLM answered directly
+		if len(e.ToolCalls) == 0 && e.Content != "" && e.Content != " " {
+			// Find and complete the active goal
+			for i := range state.Goals {
+				if state.Goals[i].Status == types.GoalStatusPending || state.Goals[i].Status == types.GoalStatusInProgress {
+					state.Goals[i].Status = types.GoalStatusCompleted
+					break
+				}
+			}
+		}
 
+		// If tool calls exist, generate ToolCall commands
 		for _, tc := range e.ToolCalls {
 			args := map[string]any{}
 			if tc.Arguments != "" {
@@ -138,6 +154,41 @@ func (r *Runtime) reducer(state *types.State, event types.Event) (*types.State, 
 					state.Goals[i].Status = types.GoalStatusCompleted
 					// Don't break if we want to mark all?
 					// For now, mark the current active one as completed.
+					break
+				}
+			}
+		}
+		// Special Handling: create_file success
+		if e.ToolName == "create_file" && e.Success {
+			// Find arguments from context
+			var args struct {
+				Path string `json:"path"`
+			}
+			// Search backwards in messages to find the Assistant message with this ToolCallID
+			found := false
+			for i := len(state.Context.Messages) - 1; i >= 0; i-- {
+				msg := state.Context.Messages[i]
+				if msg.Role == "assistant" {
+					for _, tc := range msg.ToolCalls {
+						if tc.ID == e.ToolCallID {
+							if err := json.Unmarshal([]byte(tc.Arguments), &args); err == nil && args.Path != "" {
+								// Create Artifact
+								artID := types.GenerateID("art")
+								artifact := &types.Artifact{
+									ID:        artID,
+									Type:      "file",
+									Name:      filepath.Base(args.Path),
+									Path:      args.Path,
+									CreatedAt: e.EventTimestamp(),
+								}
+								state.Artifacts[artID] = artifact
+							}
+							found = true
+							break
+						}
+					}
+				}
+				if found {
 					break
 				}
 			}

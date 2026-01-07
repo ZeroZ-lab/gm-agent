@@ -217,9 +217,33 @@ func (r *Runtime) decide(ctx context.Context, goal *types.Goal) (*Decision, erro
 	copy(messages, r.state.Context.Messages)
 
 	// Add System Prompt with Goal
+	systemPrompt := r.state.SystemPrompt
+	if systemPrompt == "" {
+		systemPrompt = fmt.Sprintf(`You are an AI coding assistant. You help users with software engineering tasks through conversation.
+
+## How to Respond
+- For questions, explanations, or simple requests: respond with text directly
+- For tasks requiring action (reading files, running commands): use the appropriate tool
+- Be helpful, concise, and friendly
+
+## When to Use Tools
+- Use 'run_shell' ONLY when the user asks you to run a command or check something specific
+- Use 'read_file' when the user asks about file contents
+- Do NOT use tools just to gather context - only use them when explicitly needed
+
+## Communication
+- Respond directly to the user in your output
+- No need to use 'talk' tool unless you have a very long multi-step response
+
+Current context: %s
+When the user's request is fully addressed, use 'task_complete'.`, goal.Description)
+	} else {
+		systemPrompt = fmt.Sprintf("%s\n\nCurrent Goal: %s (Status: %s). Use 'task_complete' when done.", systemPrompt, goal.Description, goal.Status)
+	}
+
 	sysMsg := types.Message{
 		Role:    "system",
-		Content: fmt.Sprintf("You are an autonomous agent. Your goal is: %s (Status: %s). You MUST use the provided tools to make progress. To speak to the user, you MUST use the 'talk' tool. Do not simply output text. When the goal is achieved, you MUST use the 'task_complete' tool to exit.", goal.Description, goal.Status),
+		Content: systemPrompt,
 	}
 	// Prepend system message
 	messages = append([]types.Message{sysMsg}, messages...)
@@ -250,4 +274,11 @@ func (r *Runtime) checkpoint(ctx context.Context) error {
 	}
 	// Save CP
 	return r.store.SaveCheckpoint(ctx, cp)
+}
+
+// GetState returns the current state (thread-safe shallow copy for reading)
+func (r *Runtime) GetState() *types.State {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.state
 }

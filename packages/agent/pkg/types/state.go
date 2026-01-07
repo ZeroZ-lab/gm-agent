@@ -9,6 +9,9 @@ type State struct {
 	Version   int64     `json:"version"`    // State version, incremented on each update
 	UpdatedAt time.Time `json:"updated_at"` // Last update time
 
+	// System Configuration
+	SystemPrompt string `json:"system_prompt,omitempty"`
+
 	// Goal Management
 	Goals []Goal `json:"goals"` // List of goals (sorted by priority)
 

@@ -199,6 +199,20 @@ func (s *stubRuntime) Run(ctx context.Context) error {
 		}
 	}
 	return s.lastErr
+	return s.lastErr
+}
+
+func (s *stubRuntime) GetState() *types.State {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.store == nil {
+		return types.NewState()
+	}
+	st, _ := s.store.LoadLatestState(context.Background())
+	if st == nil {
+		return types.NewState()
+	}
+	return st
 }
 
 func (s *stubRuntime) wait() {

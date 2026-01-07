@@ -18,6 +18,7 @@ var ErrSessionNotFound = errors.New("session not found")
 type RuntimeRunner interface {
 	Ingest(ctx context.Context, event types.Event) error
 	Run(ctx context.Context) error
+	GetState() *types.State
 }
 
 // SessionResources contains runtime dependencies for a session.
@@ -58,7 +59,7 @@ func NewSessionService(factory SessionFactory, log *slog.Logger) *SessionService
 }
 
 // Create creates a new session with the given prompt.
-func (s *SessionService) Create(ctx context.Context, prompt string, priority int) (*Session, error) {
+func (s *SessionService) Create(ctx context.Context, prompt string, systemPrompt string, priority int) (*Session, error) {
 	id := types.GenerateID("ses")
 	resources, err := s.factory(id)
 	if err != nil {
@@ -74,6 +75,18 @@ func (s *SessionService) Create(ctx context.Context, prompt string, priority int
 	}
 
 	s.sessions.Store(id, session)
+
+	// Ingest System Prompt if present
+	if systemPrompt != "" {
+		sysEvent := &types.SystemPromptEvent{
+			BaseEvent: types.NewBaseEvent("system_prompt", "user", id),
+			Prompt:    systemPrompt,
+		}
+		if err := resources.Runtime.Ingest(resources.Ctx, sysEvent); err != nil {
+			s.log.Error("failed to ingest system prompt", "error", err)
+			return nil, err
+		}
+	}
 
 	// Ingest prompt
 	event := &types.UserMessageEvent{
@@ -141,6 +154,45 @@ func (s *SessionService) Cancel(id string) error {
 	return nil
 }
 
+// Message sends a user message to a session.
+func (s *SessionService) Message(ctx context.Context, id string, content string, semantic string) (*Session, error) {
+	val, ok := s.sessions.Load(id)
+	if !ok {
+		return nil, ErrSessionNotFound
+	}
+	session := val.(*Session)
+
+	priority := 0
+	if types.Semantic(semantic) == types.SemanticPreempt {
+		priority = 100
+	}
+
+	event := &types.UserMessageEvent{
+		BaseEvent: types.NewBaseEvent("user_request", "user", id),
+		Content:   content,
+		Priority:  priority,
+		Semantic:  types.Semantic(semantic),
+	}
+
+	// We use the session's context for ingestion to ensure it respects session lifecycle
+	if err := session.Resources.Runtime.Ingest(session.Resources.Ctx, event); err != nil {
+		s.log.Error("failed to ingest message", "error", err)
+		return nil, err
+	}
+
+	// If session was completed, restart the runtime to process the new message
+	session.mu.Lock()
+	if session.Status == "completed" {
+		session.Status = "running"
+		session.mu.Unlock()
+		go s.runSession(session)
+	} else {
+		session.mu.Unlock()
+	}
+
+	return session, nil
+}
+
 // GetStatus returns the status of a session (thread-safe).
 func (sess *Session) GetStatus() (status string, lastError string) {
 	sess.mu.Lock()
@@ -167,4 +219,43 @@ func (s *SessionService) runSession(sess *Session) {
 		return
 	}
 	sess.Status = "completed"
+}
+
+// ListArtifacts returns all artifacts for a session.
+func (s *SessionService) ListArtifacts(id string) ([]*types.Artifact, error) {
+	session, err := s.Get(id)
+	if err != nil {
+		return nil, err
+	}
+
+	state := session.Resources.Runtime.GetState()
+	if state == nil {
+		return nil, errors.New("state not available")
+	}
+
+	var list []*types.Artifact
+	for _, art := range state.Artifacts {
+		list = append(list, art)
+	}
+	return list, nil
+}
+
+// GetArtifact returns a specific artifact.
+func (s *SessionService) GetArtifact(sessionID string, artifactID string) (*types.Artifact, error) {
+	session, err := s.Get(sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	state := session.Resources.Runtime.GetState()
+	if state == nil {
+		return nil, errors.New("state not available")
+	}
+
+	art, ok := state.Artifacts[artifactID]
+	if !ok {
+		return nil, errors.New("artifact not found")
+	}
+
+	return art, nil
 }

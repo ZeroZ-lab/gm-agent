@@ -48,6 +48,12 @@ type UserMessageEvent struct {
 	Semantic Semantic `json:"semantic"`
 }
 
+// SystemPromptEvent
+type SystemPromptEvent struct {
+	BaseEvent
+	Prompt string `json:"prompt"`
+}
+
 // LLMResponseEvent
 type LLMResponseEvent struct {
 	BaseEvent
@@ -55,6 +61,12 @@ type LLMResponseEvent struct {
 	Content   string     `json:"content"`
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
 	Usage     Usage      `json:"usage"`
+}
+
+// LLMTokenEvent represents an incremental text chunk from LLM
+type LLMTokenEvent struct {
+	BaseEvent
+	Delta string `json:"delta"`
 }
 
 // ToolResultEvent
@@ -88,4 +100,22 @@ type Usage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
+}
+
+// PermissionRequestEvent is emitted when a tool needs user approval
+type PermissionRequestEvent struct {
+	BaseEvent
+	RequestID  string            `json:"request_id"`
+	ToolName   string            `json:"tool_name"`
+	Permission string            `json:"permission"` // e.g. "read", "write", "shell", "network"
+	Patterns   []string          `json:"patterns"`   // e.g. ["/path/to/file"]
+	Metadata   map[string]string `json:"metadata"`   // Additional context
+}
+
+// PermissionResponseEvent is the user's response to a permission request
+type PermissionResponseEvent struct {
+	BaseEvent
+	RequestID string `json:"request_id"`
+	Approved  bool   `json:"approved"`
+	Always    bool   `json:"always"` // If true, always allow this pattern
 }

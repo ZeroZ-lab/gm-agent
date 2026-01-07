@@ -3,25 +3,14 @@ package runtime
 import (
 	"context"
 
+	"github.com/gm-agent-org/gm-agent/pkg/llm"
 	"github.com/gm-agent-org/gm-agent/pkg/types"
 )
 
 // LLMGateway defines the interface for LLM interactions
 type LLMGateway interface {
-	Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error)
-}
-
-type ChatRequest struct {
-	Model    string
-	Messages []types.Message
-	Tools    []types.Tool
-}
-
-type ChatResponse struct {
-	Model     string
-	Content   string
-	ToolCalls []types.ToolCall
-	Usage     types.Usage
+	Chat(ctx context.Context, req *llm.ChatRequest) (*llm.ChatResponse, error)
+	StreamChat(ctx context.Context, req *llm.ChatRequest) (<-chan llm.StreamChunk, error)
 }
 
 // ToolExecutor defines the interface for tool execution

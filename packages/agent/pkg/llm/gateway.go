@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/gm-agent-org/gm-agent/pkg/config"
-	"github.com/gm-agent-org/gm-agent/pkg/runtime"
 )
 
 type Gateway struct {
@@ -22,7 +21,7 @@ func NewGateway(provider Provider, opts config.ProviderOptions) *Gateway {
 	}
 }
 
-func (g *Gateway) Chat(ctx context.Context, req *runtime.ChatRequest) (*runtime.ChatResponse, error) {
+func (g *Gateway) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
 	// Map Runtime Request to Provider Request
 	provReq := &ProviderRequest{
 		Model:       req.Model,
@@ -38,10 +37,21 @@ func (g *Gateway) Chat(ctx context.Context, req *runtime.ChatRequest) (*runtime.
 	}
 
 	// Map Provider Response to Runtime Response
-	return &runtime.ChatResponse{
+	return &ChatResponse{
 		Model:     resp.Model,
 		Content:   resp.Content,
 		ToolCalls: resp.ToolCalls,
 		Usage:     resp.Usage,
 	}, nil
+}
+func (g *Gateway) StreamChat(ctx context.Context, req *ChatRequest) (<-chan StreamChunk, error) {
+	provReq := &ProviderRequest{
+		Model:       req.Model,
+		Messages:    req.Messages,
+		Tools:       req.Tools,
+		MaxTokens:   g.options.MaxTokens,
+		Temperature: g.options.Temperature,
+	}
+
+	return g.provider.CallStream(ctx, provReq)
 }

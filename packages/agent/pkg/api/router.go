@@ -23,8 +23,14 @@ func (s *Server) setupRoutes() {
 	v1.GET("/session", sessionHandler.List)
 	v1.GET("/session/:id", sessionHandler.Get)
 	v1.DELETE("/session/:id", sessionHandler.Delete)
+	v1.POST("/session/:id/message", sessionHandler.Message)
 	v1.POST("/session/:id/cancel", sessionHandler.Cancel)
 	v1.GET("/session/:id/event", sessionHandler.SSE)
+
+	// Artifact handlers
+	artifactHandler := handler.NewArtifactHandler(s.sessionSvc)
+	v1.GET("/session/:id/artifact", artifactHandler.List)
+	v1.GET("/session/:id/artifact/:art_id", artifactHandler.Get)
 
 	// Legacy routes (deprecated, for backward compat)
 	v1.POST("/sessions", sessionHandler.Create)

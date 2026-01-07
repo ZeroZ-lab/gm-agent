@@ -131,6 +131,9 @@ func cmdServe(ctx context.Context, logger *slog.Logger, configPath string) error
 	if err := toolRegistry.Register(tools.ReadFileTool); err != nil {
 		panic(err)
 	}
+	if err := toolRegistry.Register(tools.CreateFileTool); err != nil {
+		panic(err)
+	}
 	if err := toolRegistry.Register(tools.RunShellTool); err != nil {
 		panic(err)
 	}
@@ -146,6 +149,7 @@ func cmdServe(ctx context.Context, logger *slog.Logger, configPath string) error
 
 	// Register Handlers
 	toolExecutor.RegisterHandler("read_file", tools.HandleReadFile)
+	toolExecutor.RegisterHandler("create_file", tools.HandleCreateFile)
 	toolExecutor.RegisterHandler("run_shell", tools.HandleRunShell)
 	toolExecutor.RegisterHandler("talk", tools.HandleTalk)
 	toolExecutor.RegisterHandler("task_complete", tools.HandleTaskComplete)

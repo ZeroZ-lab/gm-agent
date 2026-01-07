@@ -1,0 +1,6 @@
+time=2026-01-07T10:58:47.829+08:00 level=INFO msg="gm-agent starting..."
+time=2026-01-07T10:58:47.829+08:00 level=INFO msg="swagger ui enabled" path=/swagger/index.html
+time=2026-01-07T10:58:47.829+08:00 level=INFO msg="http api listening" addr=:8080 provider=openai model=deepseek-chat
+time=2026-01-07T10:58:47.830+08:00 level=ERROR msg="http server error" error="listen tcp :8080: bind: address already in use"
+time=2026-01-07T10:58:47.830+08:00 level=ERROR msg="gm-agent exited with error" error="http server: listen tcp :8080: bind: address already in use"
+exit status 1

@@ -7,6 +7,7 @@ import (
 	"github.com/gm-agent-org/gm-agent/pkg/config"
 	"github.com/gm-agent-org/gm-agent/pkg/llm"
 	"github.com/gm-agent-org/gm-agent/pkg/llm/gemini"
+	"github.com/gm-agent-org/gm-agent/pkg/llm/mock"
 	"github.com/gm-agent-org/gm-agent/pkg/llm/openai"
 )
 
@@ -44,6 +45,8 @@ func createProvider(ctx context.Context, providerID string, opts config.Provider
 	case "anthropic":
 		// TODO: Implement Anthropic provider
 		return nil, fmt.Errorf("anthropic provider not yet implemented")
+	case "mock":
+		return mock.New(opts.Model), nil
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", providerID)
 	}

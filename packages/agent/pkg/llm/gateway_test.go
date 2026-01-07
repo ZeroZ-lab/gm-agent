@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/gm-agent-org/gm-agent/pkg/config"
-	"github.com/gm-agent-org/gm-agent/pkg/runtime"
 	"github.com/gm-agent-org/gm-agent/pkg/types"
 )
 
@@ -17,9 +16,18 @@ func (stubProvider) Call(ctx context.Context, req *ProviderRequest) (*ProviderRe
 	return &ProviderResponse{Model: req.Model, Content: "ok", ToolCalls: []types.ToolCall{{Name: req.Tools[0].Name}}, Usage: types.Usage{TotalTokens: 1}}, nil
 }
 
+func (stubProvider) CallStream(ctx context.Context, req *ProviderRequest) (<-chan string, error) {
+	ch := make(chan string)
+	go func() {
+		defer close(ch)
+		ch <- "ok"
+	}()
+	return ch, nil
+}
+
 func TestGatewayChat(t *testing.T) {
 	gw := NewGateway(stubProvider{}, config.ProviderOptions{})
-	resp, err := gw.Chat(context.Background(), &runtime.ChatRequest{Model: "m", Messages: []types.Message{{Content: "hi"}}, Tools: []types.Tool{{Name: "t"}}})
+	resp, err := gw.Chat(context.Background(), &ChatRequest{Model: "m", Messages: []types.Message{{Content: "hi"}}, Tools: []types.Tool{{Name: "t"}}})
 	if err != nil {
 		t.Fatalf("chat error: %v", err)
 	}

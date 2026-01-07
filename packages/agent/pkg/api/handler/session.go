@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -38,7 +39,7 @@ func (h *SessionHandler) Create(c *gin.Context) {
 		return
 	}
 
-	session, err := h.svc.Create(c.Request.Context(), req.Prompt, req.Priority)
+	session, err := h.svc.Create(c.Request.Context(), req.Prompt, req.SystemPrompt, req.Priority)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.ErrorResponse{Error: err.Error()})
 		return
@@ -161,6 +162,46 @@ func (h *SessionHandler) Cancel(c *gin.Context) {
 	})
 }
 
+// Message godoc
+// @Summary      Send a message to a session
+// @Description  Send a new user message or command to an active session
+// @Tags         session
+// @Accept       json
+// @Produce      json
+// @Param        id path string true "Session ID"
+// @Param        request body dto.MessageRequest true "Message request"
+// @Success      200 {object} dto.SessionResponse
+// @Failure      400 {object} dto.ErrorResponse
+// @Failure      404 {object} dto.ErrorResponse
+// @Failure      500 {object} dto.ErrorResponse
+// @Router       /api/v1/session/{id}/message [post]
+func (h *SessionHandler) Message(c *gin.Context) {
+	id := c.Param("id")
+	var req dto.MessageRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "invalid request body"})
+		return
+	}
+
+	session, err := h.svc.Message(c.Request.Context(), id, req.Content, req.Semantic)
+	if err != nil {
+		if errors.Is(err, service.ErrSessionNotFound) {
+			c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "session not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	status, lastErr := session.GetStatus()
+	c.JSON(http.StatusOK, dto.SessionResponse{
+		ID:        session.ID,
+		Status:    status,
+		CreatedAt: session.CreatedAt,
+		Error:     lastErr,
+	})
+}
+
 // SSE godoc
 // @Summary      SSE Event Stream
 // @Description  Server-Sent Events stream for real-time session updates
@@ -192,7 +233,7 @@ func (h *SessionHandler) SSE(c *gin.Context) {
 	afterEventID := c.Query("after")
 
 	ctx := c.Request.Context()
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(50 * time.Millisecond) // Fast polling for smooth streaming
 	defer ticker.Stop()
 
 	lastEventID := afterEventID
@@ -220,7 +261,13 @@ func (h *SessionHandler) SSE(c *gin.Context) {
 			for _, evt := range events {
 				evtID := evt.EventID()
 				evtType := evt.EventType()
-				_, _ = c.Writer.Write([]byte("event: " + evtType + "\ndata: {\"id\":\"" + evtID + "\"}\n\n"))
+
+				data, err := json.Marshal(evt)
+				if err != nil {
+					continue
+				}
+
+				_, _ = c.Writer.Write([]byte("event: " + evtType + "\ndata: " + string(data) + "\n\n"))
 				lastEventID = evtID
 			}
 			if len(events) > 0 {

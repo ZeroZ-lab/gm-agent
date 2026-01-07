@@ -27,6 +27,16 @@ definitions:
       version:
         type: string
     type: object
+  dto.MessageRequest:
+    properties:
+      content:
+        type: string
+      semantic:
+        description: append/fork/preempt/cancel
+        type: string
+    required:
+    - content
+    type: object
   dto.SessionListResponse:
     properties:
       sessions:
@@ -179,6 +189,45 @@ paths:
       - text/event-stream
       responses: {}
       summary: SSE Event Stream
+      tags:
+      - session
+  /api/v1/session/{id}/message:
+    post:
+      consumes:
+      - application/json
+      description: Send a new user message or command to an active session
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Message request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.MessageRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.SessionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: Send a message to a session
       tags:
       - session
   /health:

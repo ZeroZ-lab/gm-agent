@@ -51,6 +51,59 @@ func (p *Provider) ID() string {
 }
 
 func (p *Provider) Call(ctx context.Context, req *llm.ProviderRequest) (*llm.ProviderResponse, error) {
+	modelName, contents, conf, err := p.prepareCall(req)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := p.client.Models.GenerateContent(ctx, modelName, contents, conf)
+	if err != nil {
+		return nil, err
+	}
+
+	return convertResponse(resp, modelName)
+}
+
+func (p *Provider) CallStream(ctx context.Context, req *llm.ProviderRequest) (<-chan llm.StreamChunk, error) {
+	modelName, contents, conf, err := p.prepareCall(req)
+	if err != nil {
+		return nil, err
+	}
+
+	stream := p.client.Models.GenerateContentStream(ctx, modelName, contents, conf)
+
+	ch := make(chan llm.StreamChunk)
+	go func() {
+		defer close(ch)
+		for chunk, err := range stream {
+			if err != nil {
+				return
+			}
+			var toolCalls []types.ToolCall
+			// Extract tool calls if present in this chunk
+			for _, part := range chunk.Candidates[0].Content.Parts {
+				if part.FunctionCall != nil {
+					argsBytes, _ := json.Marshal(part.FunctionCall.Args)
+					toolCalls = append(toolCalls, types.ToolCall{
+						Name:      part.FunctionCall.Name,
+						Arguments: string(argsBytes),
+					})
+				}
+			}
+
+			if text := chunk.Text(); text != "" || len(toolCalls) > 0 {
+				ch <- llm.StreamChunk{
+					Content:   text,
+					ToolCalls: toolCalls,
+				}
+			}
+		}
+	}()
+
+	return ch, nil
+}
+
+func (p *Provider) prepareCall(req *llm.ProviderRequest) (string, []*genai.Content, *genai.GenerateContentConfig, error) {
 	// 1. Separate System Prompt
 	var systemInstruction *genai.Content
 	var contents []*genai.Content
@@ -65,7 +118,7 @@ func (p *Provider) Call(ctx context.Context, req *llm.ProviderRequest) (*llm.Pro
 
 		content, err := convertMessage(m)
 		if err != nil {
-			return nil, err
+			return "", nil, nil, err
 		}
 		contents = append(contents, content)
 	}
@@ -76,25 +129,18 @@ func (p *Provider) Call(ctx context.Context, req *llm.ProviderRequest) (*llm.Pro
 	// 3. Prepare Config
 	conf := &genai.GenerateContentConfig{
 		Temperature:       genai.Ptr(float32(req.Temperature)),
-		MaxOutputTokens:   int32(req.MaxTokens), // Try direct int32 assignment based on lint error.
+		MaxOutputTokens:   int32(req.MaxTokens),
 		SystemInstruction: systemInstruction,
 		Tools:             tools,
 	}
 
-	// 4. Call API
-	// Using model from request, or default to gemini-1.5-flash
+	// 4. Model Name
 	modelName := req.Model
 	if modelName == "" {
 		modelName = "gemini-1.5-flash"
 	}
 
-	resp, err := p.client.Models.GenerateContent(ctx, modelName, contents, conf)
-	if err != nil {
-		return nil, err
-	}
-
-	// 5. Convert Response
-	return convertResponse(resp, modelName)
+	return modelName, contents, conf, nil
 }
 
 // Helpers

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gm-agent-org/gm-agent/pkg/llm"
 	"github.com/gm-agent-org/gm-agent/pkg/store"
 	"github.com/gm-agent-org/gm-agent/pkg/types"
 )
@@ -74,8 +75,17 @@ func (m *mockStore) DeleteArtifact(ctx context.Context, id string) error { retur
 
 type mockLLM struct{}
 
-func (mockLLM) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
-	return &ChatResponse{Model: req.Model, Content: "reply"}, nil
+func (mockLLM) Chat(ctx context.Context, req *llm.ChatRequest) (*llm.ChatResponse, error) {
+	return &llm.ChatResponse{Model: req.Model, Content: "reply"}, nil
+}
+
+func (mockLLM) StreamChat(ctx context.Context, req *llm.ChatRequest) (<-chan llm.StreamChunk, error) {
+	ch := make(chan llm.StreamChunk)
+	go func() {
+		defer close(ch)
+		ch <- llm.StreamChunk{Content: "reply"}
+	}()
+	return ch, nil
 }
 
 type mockTools struct{ executed []*types.ToolCall }

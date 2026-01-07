@@ -60,7 +60,15 @@ curl -N http://localhost:8080/api/v1/session/<session_id>/event
 curl http://localhost:8080/api/v1/session
 ```
 
-### 2.5 取消会话
+### 2.5 发送消息 (交互)
+```bash
+curl -X POST http://localhost:8080/api/v1/session/<session_id>/message \
+  -H "Content-Type: application/json" \
+  -d '{"content": "请把密码改长一点", "semantic": "append"}'
+# {"id":"...","status":"running",...}
+```
+
+### 2.6 取消会话
 ```bash
 curl -X POST http://localhost:8080/api/v1/session/<session_id>/cancel
 ```

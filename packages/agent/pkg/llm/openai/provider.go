@@ -161,3 +161,103 @@ func convertToolCalls(calls []openai.ToolCall) []types.ToolCall {
 	}
 	return result
 }
+
+func (p *Provider) CallStream(ctx context.Context, req *llm.ProviderRequest) (<-chan llm.StreamChunk, error) {
+	// 1. Convert Messages
+	msgs, err := convertMessages(req.Messages)
+	if err != nil {
+		return nil, fmt.Errorf("convert messages: %w", err)
+	}
+
+	// 2. Convert Tools
+	tools := convertTools(req.Tools)
+
+	// 3. Make Streaming Request
+	openAIReq := openai.ChatCompletionRequest{
+		Model:       req.Model,
+		Messages:    msgs,
+		Tools:       tools,
+		MaxTokens:   req.MaxTokens,
+		Temperature: float32(req.Temperature),
+		Stream:      true,
+	}
+
+	stream, err := p.client.CreateChatCompletionStream(ctx, openAIReq)
+	if err != nil {
+		return nil, fmt.Errorf("create stream: %w", err)
+	}
+
+	ch := make(chan llm.StreamChunk)
+	go func() {
+		defer close(ch)
+		defer stream.Close()
+
+		// Track tool calls across chunks (they come in pieces)
+		toolCallBuilder := make(map[int]*types.ToolCall)
+
+		for {
+			resp, err := stream.Recv()
+			if err != nil {
+				// EOF or error, stop streaming
+				return
+			}
+
+			if len(resp.Choices) == 0 {
+				continue
+			}
+
+			delta := resp.Choices[0].Delta
+
+			// Handle text content
+			if delta.Content != "" {
+				ch <- llm.StreamChunk{
+					Content: delta.Content,
+				}
+			}
+
+			// Handle tool calls (they come in chunks)
+			for _, tc := range delta.ToolCalls {
+				idx := tc.Index
+				if idx == nil {
+					continue
+				}
+
+				// Initialize tool call if first chunk for this index
+				if _, ok := toolCallBuilder[*idx]; !ok {
+					toolCallBuilder[*idx] = &types.ToolCall{
+						ID:   tc.ID,
+						Name: tc.Function.Name,
+					}
+				}
+
+				// Append arguments as they stream in
+				toolCallBuilder[*idx].Arguments += tc.Function.Arguments
+
+				// Fill in ID/Name if they come later
+				if tc.ID != "" {
+					toolCallBuilder[*idx].ID = tc.ID
+				}
+				if tc.Function.Name != "" {
+					toolCallBuilder[*idx].Name = tc.Function.Name
+				}
+			}
+
+			// Check if we're done (finish_reason set)
+			if resp.Choices[0].FinishReason != "" {
+				// Emit all completed tool calls
+				if len(toolCallBuilder) > 0 {
+					var toolCalls []types.ToolCall
+					for _, tc := range toolCallBuilder {
+						toolCalls = append(toolCalls, *tc)
+					}
+					ch <- llm.StreamChunk{
+						ToolCalls: toolCalls,
+					}
+				}
+				return
+			}
+		}
+	}()
+
+	return ch, nil
+}

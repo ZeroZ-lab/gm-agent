@@ -3,11 +3,9 @@ package config
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/joho/godotenv"
 	"github.com/kelseyhightower/envconfig"
-	"gopkg.in/yaml.v3"
 )
 
 // ProviderConfig represents configuration for a single LLM provider.
@@ -260,51 +258,32 @@ func mergeOptions(base, override ProviderOptions) ProviderOptions {
 	return result
 }
 
-// Load reads configuration from the specified path, or defaults if path is empty.
-// Priority: Env Vars > Config File > Defaults
+// Load reads configuration from environment variables and .env files.
+// Priority: Env Vars > .env file > Defaults
 func Load(path string) (*Config, error) {
 	// Try loading .env files (ignore error if not present)
 	_ = godotenv.Load(".env.local")
 	_ = godotenv.Load(".env")
 
-	if path == "" {
-		// Try default locations
-		home, err := os.UserHomeDir()
-		if err == nil {
-			defaultPath := filepath.Join(home, ".gm-agent", "config.yaml")
-			if _, err := os.Stat(defaultPath); err == nil {
-				path = defaultPath
-			}
-		}
-
-		// Try local directory config.yaml
-		localPath := "config.yaml"
-		if _, err := os.Stat(localPath); err == nil {
-			path = localPath
-		}
-	}
-
 	cfg := &Config{
 		Providers: make(map[string]ProviderConfig),
-	}
-
-	if path != "" {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read config file: %w", err)
-		}
-		if err := yaml.Unmarshal(data, cfg); err != nil {
-			return nil, fmt.Errorf("failed to parse config file: %w", err)
-		}
+		// Set defaults
+		Security: SecurityConfig{
+			AllowFileSystem: true, // Default to true for better UX
+			AllowInternet:   true,
+			WorkspaceRoot:   ".",
+		},
+		HTTP: HTTPConfig{
+			Addr: ":8080",
+		},
 	}
 
 	// Process Env Vars (GM_ prefix)
-	// This will override values from config file if set in Env
 	if err := envconfig.Process("GM", cfg); err != nil {
 		return nil, fmt.Errorf("failed to process env vars: %w", err)
 	}
 
-	// Apply Defaults
+	// Apply Defaults if not set
 	if cfg.HTTP.Addr == "" {
 		cfg.HTTP.Addr = ":8080"
 	}

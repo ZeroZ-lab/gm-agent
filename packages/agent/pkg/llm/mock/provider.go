@@ -36,3 +36,16 @@ func (p *Provider) Call(ctx context.Context, req *llm.ProviderRequest) (*llm.Pro
 		Content: content,
 	}, nil
 }
+
+func (p *Provider) CallStream(ctx context.Context, req *llm.ProviderRequest) (<-chan llm.StreamChunk, error) {
+	ch := make(chan llm.StreamChunk)
+	go func() {
+		defer close(ch)
+		content := p.ResponseContent
+		if content == "" {
+			content = "Mock streaming response"
+		}
+		ch <- llm.StreamChunk{Content: content}
+	}()
+	return ch, nil
+}
