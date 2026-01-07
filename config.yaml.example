@@ -2,6 +2,9 @@
 # If not set, auto-detection is used based on available API keys in environment.
 # active_provider: "gemini"
 
+# Logging verbosity: DEBUG, VERBOSE, INFO, WARNING, ERROR
+log_level: "INFO"
+
 # Provider Configuration
 # Each provider has its own options section.
 provider:
@@ -36,3 +39,9 @@ security:
   allow_fs: true             # Allow filesystem operations (read_file, etc.)
   allow_net: true            # Allow network operations
   workspace_root: "."        # Path to restrict filesystem access to (jail root).
+
+# HTTP API Server
+http:
+  enable: true
+  addr: ":8080"
+  api_key: "change-me"

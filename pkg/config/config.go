@@ -34,17 +34,30 @@ type SecurityConfig struct {
 	WorkspaceRoot   string   `yaml:"workspace_root" envconfig:"WORKSPACE_ROOT"`
 }
 
+// HTTPConfig contains HTTP API related settings.
+type HTTPConfig struct {
+	Enable bool   `yaml:"enable" envconfig:"ENABLE"`
+	Addr   string `yaml:"addr" envconfig:"ADDR"`
+	APIKey string `yaml:"api_key" envconfig:"API_KEY"`
+}
+
 // Config is the root configuration structure.
 type Config struct {
 	// ActiveProvider explicitly sets the active provider (optional).
 	// If not set, auto-detection is used based on available API keys.
 	ActiveProvider string `yaml:"active_provider" envconfig:"ACTIVE_PROVIDER"`
 
+	// LogLevel controls structured logging verbosity (DEBUG, VERBOSE, INFO, WARNING, ERROR).
+	LogLevel string `yaml:"log_level" envconfig:"LOG_LEVEL"`
+
 	// Providers is a map of provider ID to its configuration.
 	Providers map[string]ProviderConfig `yaml:"provider"`
 
 	// Security settings.
 	Security SecurityConfig `yaml:"security" envconfig:"SECURITY"`
+
+	// HTTP server settings.
+	HTTP HTTPConfig `yaml:"http" envconfig:"HTTP"`
 }
 
 // ProviderEnvVars maps provider IDs to their environment variable names for auto-detection.
