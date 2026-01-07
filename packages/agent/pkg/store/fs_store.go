@@ -434,3 +434,59 @@ func (s *FSStore) ListArtifacts(ctx context.Context, filter ArtifactFilter) ([]t
 func (s *FSStore) DeleteArtifact(ctx context.Context, id string) error {
 	return errors.New("not implemented")
 }
+
+// --- Permission Operations ---
+
+func (s *FSStore) AddPermissionRule(ctx context.Context, rule types.PermissionRule) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	rules, err := s.loadPermissionRulesLocked()
+	if err != nil {
+		return err
+	}
+
+	// Simple deduplication check based on tool and pattern
+	for _, r := range rules {
+		if r.ToolName == rule.ToolName && r.Pattern == rule.Pattern && r.Action == rule.Action {
+			// Already exists
+			return nil
+		}
+	}
+
+	rules = append(rules, rule)
+	return s.savePermissionRulesLocked(rules)
+}
+
+func (s *FSStore) GetPermissionRules(ctx context.Context) ([]types.PermissionRule, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.loadPermissionRulesLocked()
+}
+
+func (s *FSStore) loadPermissionRulesLocked() ([]types.PermissionRule, error) {
+	path := filepath.Join(s.rootDir, "permissions.json")
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return []types.PermissionRule{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var rules []types.PermissionRule
+	if err := json.Unmarshal(data, &rules); err != nil {
+		// If corrupted, return error or empty? Let's return error to be safe
+		return nil, fmt.Errorf("failed to parse permissions.json: %w", err)
+	}
+	return rules, nil
+}
+
+func (s *FSStore) savePermissionRulesLocked(rules []types.PermissionRule) error {
+	data, err := json.MarshalIndent(rules, "", "  ")
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(s.rootDir, "permissions.json")
+	return s.atomicWrite(path, data)
+}

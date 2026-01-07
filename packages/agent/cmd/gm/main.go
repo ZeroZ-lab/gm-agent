@@ -128,7 +128,8 @@ func cmdServe(ctx context.Context, logger *slog.Logger, configPath string) error
 
 	// Setup Tool System
 	toolRegistry := tool.NewRegistry()
-	toolPolicy := tool.NewPolicy(cfg.Security, toolRegistry)
+	// Pass fsStore to Policy for persistent rules
+	toolPolicy := tool.NewPolicy(cfg.Security, toolRegistry, fsStore)
 
 	// Register Built-in Tools
 	if err := toolRegistry.Register(tools.ReadFileTool); err != nil {
@@ -214,6 +215,27 @@ func cmdServe(ctx context.Context, logger *slog.Logger, configPath string) error
 			if err != nil {
 				return false, err
 			}
+
+			// If Always Allow selected, persist the rule
+			if resp.Always && resp.Approved {
+				if len(req.Patterns) > 0 {
+					rule := types.PermissionRule{
+						ID:        types.GenerateID("rule"),
+						ToolName:  req.ToolName,
+						Action:    "allow",
+						Pattern:   tool.NormalizeArguments(req.Patterns[0]), // MVP: Use exact match of first pattern (args JSON)
+						CreatedAt: time.Now(),
+					}
+					// Only save if action is allowed
+					if err := fsStore.AddPermissionRule(ctx, rule); err != nil {
+						logger.Error("failed to save permission rule", "error", err)
+						// Proceed anyway since current request is approved
+					} else {
+						logger.Info("saved persistent permission rule", "tool", req.ToolName)
+					}
+				}
+			}
+
 			return resp.Approved, nil
 		})
 

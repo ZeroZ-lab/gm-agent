@@ -29,7 +29,7 @@ func TestRegistry(t *testing.T) {
 func TestPolicyCheck(t *testing.T) {
 	reg := NewRegistry()
 	cfg := config.SecurityConfig{AllowedTools: []string{"safe"}, AllowFileSystem: false}
-	policy := NewPolicy(cfg, reg)
+	policy := NewPolicy(cfg, reg, nil)
 
 	if action, err := policy.Check(context.Background(), "safe", "{}"); err != nil || action != PolicyConfirm {
 		t.Fatalf("expected confirm for allowed tool, got %v %v", action, err)
@@ -45,7 +45,7 @@ func TestPolicyCheck(t *testing.T) {
 	reg2 := NewRegistry()
 	reg2.Register(types.Tool{Name: "read_file", Metadata: map[string]string{"category": "filesystem"}})
 
-	policy = NewPolicy(cfg2, reg2)
+	policy = NewPolicy(cfg2, reg2, nil)
 	if _, err := policy.Check(context.Background(), "read_file", "{}"); err == nil {
 		t.Fatalf("expected filesystem denial when allow flag is false")
 	}
@@ -56,7 +56,7 @@ func TestExecutor(t *testing.T) {
 	if err := reg.Register(types.Tool{Name: "echo"}); err != nil {
 		t.Fatalf("register tool: %v", err)
 	}
-	policy := NewPolicy(config.SecurityConfig{AutoApprove: true}, reg)
+	policy := NewPolicy(config.SecurityConfig{AutoApprove: true}, reg, nil)
 	exec := NewExecutor(reg, policy)
 
 	exec.RegisterHandler("echo", func(ctx context.Context, args string) (string, error) {

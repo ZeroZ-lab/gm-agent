@@ -2,9 +2,11 @@ package tool
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/gm-agent-org/gm-agent/pkg/config"
+	"github.com/gm-agent-org/gm-agent/pkg/types"
 )
 
 // PolicyAction defines the action to take for a tool execution
@@ -16,17 +18,23 @@ const (
 	PolicyConfirm PolicyAction = "confirm" // Requires user confirmation (not implemented fully in MVP)
 )
 
+type PermissionReader interface {
+	GetPermissionRules(ctx context.Context) ([]types.PermissionRule, error)
+}
+
 type Policy struct {
 	config   config.SecurityConfig
 	registry *Registry
+	store    PermissionReader
 }
 
-func NewPolicy(cfg config.SecurityConfig, registry *Registry) *Policy {
+func NewPolicy(cfg config.SecurityConfig, registry *Registry, store PermissionReader) *Policy {
 	// If AllowFileSystem is FALSE, we might want to hard restrict in Check.
 	// But allowed_tools takes precedence for specific tool names.
 	return &Policy{
 		config:   cfg,
 		registry: registry,
+		store:    store,
 	}
 }
 
@@ -64,7 +72,25 @@ func (p *Policy) Check(ctx context.Context, toolName string, args string) (Polic
 		// For now, we assume if registry is nil, we can't check categories.
 	}
 
-	// 3. Auto Approve vs Confirm
+	// 3. Check Persistent Permission Rules
+	if p.store != nil {
+		rules, err := p.store.GetPermissionRules(ctx)
+		normalizedArgs := NormalizeArguments(args)
+		if err == nil {
+			for _, rule := range rules {
+				// We compare normalized arguments
+				if rule.ToolName == toolName && NormalizeArguments(rule.Pattern) == normalizedArgs {
+					if rule.Action == "allow" {
+						return PolicyAllow, nil
+					} else if rule.Action == "deny" {
+						return PolicyDeny, fmt.Errorf("denied by persistent rule")
+					}
+				}
+			}
+		}
+	}
+
+	// 4. Auto Approve vs Confirm
 	// If AutoApprove is true, ALLOW.
 	// If AutoApprove is false, CONFIRM (default).
 	if p.config.AutoApprove {
@@ -76,4 +102,16 @@ func (p *Policy) Check(ctx context.Context, toolName string, args string) (Polic
 
 func (p *Policy) SetRule(toolName string, action PolicyAction) {
 	// Runtime override support (optional for now)
+}
+
+// NormalizeArguments sorts JSON keys to ensure consistent string representation
+func NormalizeArguments(s string) string {
+	var v interface{}
+	// If not valid JSON, return as is (strict string match)
+	if err := json.Unmarshal([]byte(s), &v); err != nil {
+		return s
+	}
+	// Re-marshal to sort keys
+	b, _ := json.Marshal(v)
+	return string(b)
 }

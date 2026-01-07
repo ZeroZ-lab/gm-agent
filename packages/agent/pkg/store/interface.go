@@ -40,6 +40,10 @@ type Store interface {
 	GetArtifact(ctx context.Context, id string) (*types.Artifact, error)
 	ListArtifacts(ctx context.Context, filter ArtifactFilter) ([]types.Artifact, error)
 	DeleteArtifact(ctx context.Context, id string) error
+
+	// Permission Operations
+	AddPermissionRule(ctx context.Context, rule types.PermissionRule) error
+	GetPermissionRules(ctx context.Context) ([]types.PermissionRule, error)
 }
 
 type ArtifactFilter struct {
