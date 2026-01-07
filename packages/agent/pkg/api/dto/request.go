@@ -13,3 +13,10 @@ type MessageRequest struct {
 	Content  string `json:"content" binding:"required"`
 	Semantic string `json:"semantic,omitempty"` // append/fork/preempt/cancel
 }
+
+// PermissionResponseRequest is the request body for responding to a permission request
+type PermissionResponseRequest struct {
+	RequestID string `json:"request_id" binding:"required"`
+	Approved  bool   `json:"approved"`
+	Always    bool   `json:"always"`
+}

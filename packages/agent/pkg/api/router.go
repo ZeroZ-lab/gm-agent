@@ -26,6 +26,7 @@ func (s *Server) setupRoutes() {
 	v1.POST("/session/:id/message", sessionHandler.Message)
 	v1.POST("/session/:id/cancel", sessionHandler.Cancel)
 	v1.GET("/session/:id/event", sessionHandler.SSE)
+	v1.POST("/session/:id/permission", sessionHandler.Permission)
 
 	// Artifact handlers
 	artifactHandler := handler.NewArtifactHandler(s.sessionSvc)

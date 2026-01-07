@@ -227,3 +227,24 @@ func (c *Client) StreamEvents(ctx context.Context, sessionID string) (<-chan Eve
 	}()
 	return ch, nil
 }
+
+type PermissionResponseRequest struct {
+	RequestID string `json:"request_id"`
+	Approved  bool   `json:"approved"`
+	Always    bool   `json:"always"`
+}
+
+func (c *Client) SubmitPermission(ctx context.Context, sessionID string, requestID string, approved bool, always bool) error {
+	status, body, err := c.Post(ctx, fmt.Sprintf("/api/v1/session/%s/permission", sessionID), PermissionResponseRequest{
+		RequestID: requestID,
+		Approved:  approved,
+		Always:    always,
+	})
+	if err != nil {
+		return err
+	}
+	if status != 200 {
+		return fmt.Errorf("permission response failed: status=%d body=%s", status, string(body))
+	}
+	return nil
+}

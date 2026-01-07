@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/gm-agent-org/gm-agent/pkg/agent/tools"
 	"github.com/gm-agent-org/gm-agent/pkg/api"
@@ -20,8 +21,10 @@ import (
 	"github.com/gm-agent-org/gm-agent/pkg/llm"
 	"github.com/gm-agent-org/gm-agent/pkg/llm/factory"
 	"github.com/gm-agent-org/gm-agent/pkg/runtime"
+	"github.com/gm-agent-org/gm-agent/pkg/runtime/permission"
 	"github.com/gm-agent-org/gm-agent/pkg/store"
 	"github.com/gm-agent-org/gm-agent/pkg/tool"
+	"github.com/gm-agent-org/gm-agent/pkg/types"
 
 	_ "github.com/gm-agent-org/gm-agent/docs" // Swagger docs
 )
@@ -145,14 +148,14 @@ func cmdServe(ctx context.Context, logger *slog.Logger, configPath string) error
 		panic(err)
 	}
 
-	toolExecutor := tool.NewExecutor(toolRegistry, toolPolicy)
-
-	// Register Handlers
-	toolExecutor.RegisterHandler("read_file", tools.HandleReadFile)
-	toolExecutor.RegisterHandler("create_file", tools.HandleCreateFile)
-	toolExecutor.RegisterHandler("run_shell", tools.HandleRunShell)
-	toolExecutor.RegisterHandler("talk", tools.HandleTalk)
-	toolExecutor.RegisterHandler("task_complete", tools.HandleTaskComplete)
+	// Sub-function to register handlers (avoids duplication)
+	registerHandlers := func(executor *tool.Executor) {
+		executor.RegisterHandler("read_file", tools.HandleReadFile)
+		executor.RegisterHandler("create_file", tools.HandleCreateFile)
+		executor.RegisterHandler("run_shell", tools.HandleRunShell)
+		executor.RegisterHandler("talk", tools.HandleTalk)
+		executor.RegisterHandler("task_complete", tools.HandleTaskComplete)
+	}
 
 	// 4. Initialize Runtime
 	rtConfig := runtime.DefaultConfig
@@ -177,8 +180,51 @@ func cmdServe(ctx context.Context, logger *slog.Logger, configPath string) error
 			return nil, err
 		}
 
-		rt := runtime.New(rtConfig, sessionStore, llmGateway, toolExecutor, logger)
-		return &service.SessionResources{Runtime: rt, Store: sessionStore, Ctx: sessionCtx, Cancel: cancel}, nil
+		// Create Permission Manager for this session
+		permManager := permission.NewManager(logger)
+
+		// Create per-session Executor
+		// We reuse the registry and policy as they are thread-safe and stateless/config-based
+		sessionExecutor := tool.NewExecutor(toolRegistry, toolPolicy)
+		registerHandlers(sessionExecutor)
+
+		// Wire Permission Callback
+		sessionExecutor.SetPermissionCallback(func(ctx context.Context, req tool.PermissionRequest) (bool, error) {
+			logger.Info("requesting permission", "tool", req.ToolName, "id", req.RequestID)
+
+			// Emit PermissionRequestEvent so Client can see it via SSE
+			reqEvent := &types.PermissionRequestEvent{
+				BaseEvent:  types.NewBaseEvent("permission_request", "system", sessionID),
+				RequestID:  req.RequestID,
+				ToolName:   req.ToolName,
+				Permission: req.Permission,
+				Patterns:   req.Patterns,
+				Metadata:   req.Metadata,
+			}
+			if err := sessionStore.AppendEvent(ctx, reqEvent); err != nil {
+				logger.Error("failed to emit permission request event", "error", err)
+			}
+
+			// Register request to manager so we can wait on it
+			permManager.Request(req.RequestID)
+
+			// Wait for user approval (timeout 5m)
+			// TODO: Make timeout configurable
+			resp, err := permManager.WaitForResponse(ctx, req.RequestID, 300*time.Second)
+			if err != nil {
+				return false, err
+			}
+			return resp.Approved, nil
+		})
+
+		rt := runtime.New(rtConfig, sessionStore, llmGateway, sessionExecutor, logger)
+		return &service.SessionResources{
+			Runtime:     rt,
+			Permissions: permManager,
+			Store:       sessionStore,
+			Ctx:         sessionCtx,
+			Cancel:      cancel,
+		}, nil
 	}
 
 	sessionSvc := service.NewSessionService(sessionFactory, logger)

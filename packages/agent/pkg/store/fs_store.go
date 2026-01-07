@@ -220,6 +220,14 @@ func (s *FSStore) scanEventsLocked(fn func(types.Event) error) error {
 			var e types.CheckpointEvent
 			_ = json.Unmarshal(line, &e)
 			evt = &e
+		case "permission_request":
+			var e types.PermissionRequestEvent
+			_ = json.Unmarshal(line, &e)
+			evt = &e
+		case "permission_response":
+			var e types.PermissionResponseEvent
+			_ = json.Unmarshal(line, &e)
+			evt = &e
 		default:
 			// Fallback or unknown
 			evt = &base

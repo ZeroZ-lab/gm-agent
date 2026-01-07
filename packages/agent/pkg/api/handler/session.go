@@ -202,6 +202,39 @@ func (h *SessionHandler) Message(c *gin.Context) {
 	})
 }
 
+// Permission godoc
+// @Summary      Respond to permission request
+// @Description  Approve or deny a permission request for a session
+// @Tags         session
+// @Accept       json
+// @Produce      json
+// @Param        id path string true "Session ID"
+// @Param        request body dto.PermissionResponseRequest true "Permission response"
+// @Success      200 {object} dto.SessionResponse
+// @Failure      400 {object} dto.ErrorResponse
+// @Failure      404 {object} dto.ErrorResponse
+// @Failure      500 {object} dto.ErrorResponse
+// @Router       /api/v1/session/{id}/permission [post]
+func (h *SessionHandler) Permission(c *gin.Context) {
+	id := c.Param("id")
+	var req dto.PermissionResponseRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "invalid request body"})
+		return
+	}
+
+	if err := h.svc.RespondPermission(id, req.RequestID, req.Approved, req.Always); err != nil {
+		if errors.Is(err, service.ErrSessionNotFound) {
+			c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "session not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, dto.SessionResponse{ID: id, Status: "ok"})
+}
+
 // SSE godoc
 // @Summary      SSE Event Stream
 // @Description  Server-Sent Events stream for real-time session updates

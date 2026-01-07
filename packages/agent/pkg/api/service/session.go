@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gm-agent-org/gm-agent/pkg/runtime/permission"
 	"github.com/gm-agent-org/gm-agent/pkg/store"
 	"github.com/gm-agent-org/gm-agent/pkg/types"
 )
@@ -23,10 +24,11 @@ type RuntimeRunner interface {
 
 // SessionResources contains runtime dependencies for a session.
 type SessionResources struct {
-	Runtime RuntimeRunner
-	Store   store.Store
-	Ctx     context.Context
-	Cancel  context.CancelFunc
+	Runtime     RuntimeRunner
+	Permissions *permission.Manager
+	Store       store.Store
+	Ctx         context.Context
+	Cancel      context.CancelFunc
 }
 
 // SessionFactory creates per-session runtime resources.
@@ -258,4 +260,20 @@ func (s *SessionService) GetArtifact(sessionID string, artifactID string) (*type
 	}
 
 	return art, nil
+}
+
+// RespondPermission handles a permission response
+func (s *SessionService) RespondPermission(id string, requestID string, approved bool, always bool) error {
+	val, ok := s.sessions.Load(id)
+	if !ok {
+		return ErrSessionNotFound
+	}
+	session := val.(*Session)
+
+	// If manager is not initialized (e.g. tests), ignore or error
+	if session.Resources.Permissions == nil {
+		return errors.New("permission manager not available")
+	}
+
+	return session.Resources.Permissions.Respond(requestID, approved, always)
 }

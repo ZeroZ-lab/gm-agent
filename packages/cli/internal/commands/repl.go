@@ -38,12 +38,21 @@ type model struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	initialized bool
+
+	// Permission state
+	permissionRequest *struct {
+		RequestID  string
+		ToolName   string
+		Permission string
+		Patterns   []string
+	}
 }
 
 // Custom Messages
 type sessionCreatedMsg string
 type eventMsg client.Event
 type nextEventMsg struct{}
+type permissionHandledMsg struct{}
 
 func initialModel(cfg *Config) model {
 	ta := textarea.New()
@@ -107,13 +116,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		spCmd tea.Cmd
 	)
 
-	m.textarea, tiCmd = m.textarea.Update(msg)
+	// Update components normally unless blocked by permission
+	if m.permissionRequest == nil {
+		m.textarea, tiCmd = m.textarea.Update(msg)
+	}
 	m.viewport, vpCmd = m.viewport.Update(msg)
 	m.spinner, spCmd = m.spinner.Update(msg)
 
 	switch msg := msg.(type) {
 	// Key Presses
 	case tea.KeyMsg:
+		// Handle permission interaction
+		if m.permissionRequest != nil {
+			switch msg.String() {
+			case "y", "Y":
+				return m, submitPermissionCmd(m.client, m.ctx, m.sessionID, m.permissionRequest.RequestID, true, false)
+			case "n", "N":
+				return m, submitPermissionCmd(m.client, m.ctx, m.sessionID, m.permissionRequest.RequestID, false, false)
+			case "a", "A":
+				return m, submitPermissionCmd(m.client, m.ctx, m.sessionID, m.permissionRequest.RequestID, true, true)
+			}
+			return m, nil // Ignore other keys while waiting for permission
+		}
+
 		switch msg.Type {
 		case tea.KeyCtrlC, tea.KeyEsc:
 			return m, tea.Quit
@@ -166,6 +191,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case streamReadyMsg:
 		m.eventCh = msg.ch
 		return m, waitForNextEvent(m.eventCh)
+
+	case permissionHandledMsg:
+		// Clear permission request after successful submission
+		m.permissionRequest = nil
+		m.messages = append(m.messages, styleSystemMessage("✅ Permission submitted"))
+		m.updateViewport()
+		return m, nil
 
 	case tea.WindowSizeMsg:
 		m.viewport.Width = msg.Width
@@ -238,12 +270,43 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Error    string `json:"error"`
 			}
 			if err := json.Unmarshal(msg.Data, &data); err == nil {
+				// Prevent UI lock: If we receive a result for the tool we are waiting on, clear the prompt
+				if m.permissionRequest != nil && m.permissionRequest.ToolName == data.ToolName {
+					m.permissionRequest = nil
+				}
+
 				if data.ToolName != "talk" {
 					status := "✅ success"
 					if !data.Success {
 						status = fmt.Sprintf("❌ failed: %s", data.Error)
 					}
 					m.messages = append(m.messages, styleSystemMessage(fmt.Sprintf("⚙️  Tool %s: %s", data.ToolName, status)))
+				}
+			}
+		case "permission_request":
+			var data struct {
+				RequestID  string   `json:"request_id"`
+				ToolName   string   `json:"tool_name"`
+				Permission string   `json:"permission"`
+				Patterns   []string `json:"patterns"`
+			}
+			if err := json.Unmarshal(msg.Data, &data); err == nil {
+				// Show permission request to user
+				m.messages = append(m.messages, styleSystemMessage(
+					fmt.Sprintf("🔐 Permission requested: %s (%s)\n   Patterns: %v\n   [Press Y to approve, N to deny, A to always allow]",
+						data.ToolName, data.Permission, data.Patterns)))
+
+				// Set pending permission request
+				m.permissionRequest = &struct {
+					RequestID  string
+					ToolName   string
+					Permission string
+					Patterns   []string
+				}{
+					RequestID:  data.RequestID,
+					ToolName:   data.ToolName,
+					Permission: data.Permission,
+					Patterns:   data.Patterns,
 				}
 			}
 		case "error":
@@ -269,14 +332,19 @@ func (m model) View() string {
 	s.WriteString("\n")
 
 	// Spinner / Status
-	if m.waiting {
+	if m.permissionRequest != nil {
+		s.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Render(
+			fmt.Sprintf("🔒 Permission Required: %s %v (y/n/a) > ", m.permissionRequest.ToolName, m.permissionRequest.Patterns)))
+	} else if m.waiting {
 		s.WriteString(m.spinner.View() + " Thinking...\n")
 	} else {
 		s.WriteString("\n")
 	}
 
 	// Input
-	s.WriteString(m.textarea.View())
+	if m.permissionRequest == nil {
+		s.WriteString(m.textarea.View())
+	}
 
 	return s.String()
 }
@@ -284,6 +352,17 @@ func (m model) View() string {
 func (m *model) updateViewport() {
 	m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
 	m.viewport.GotoBottom()
+}
+
+// Commands
+
+func submitPermissionCmd(c *client.Client, ctx context.Context, sid, reqID string, approved, always bool) tea.Cmd {
+	return func() tea.Msg {
+		if err := c.SubmitPermission(ctx, sid, reqID, approved, always); err != nil {
+			return errMsg(err)
+		}
+		return permissionHandledMsg{}
+	}
 }
 
 // Commands
