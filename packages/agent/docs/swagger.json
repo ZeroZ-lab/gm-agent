@@ -9,7 +9,7 @@
     "host": "localhost:8080",
     "basePath": "/",
     "paths": {
-        "/api/v1/session": {
+        "/api/v1/sessions": {
             "get": {
                 "description": "Returns a list of all sessions",
                 "produces": [
@@ -73,7 +73,7 @@
                 }
             }
         },
-        "/api/v1/session/{id}": {
+        "/api/v1/sessions/{id}": {
             "get": {
                 "description": "Retrieve the current status and state of a session",
                 "produces": [
@@ -141,7 +141,7 @@
                 }
             }
         },
-        "/api/v1/session/{id}/cancel": {
+        "/api/v1/sessions/{id}/cancel": {
             "post": {
                 "description": "Cancel a running session",
                 "produces": [
@@ -176,7 +176,7 @@
                 }
             }
         },
-        "/api/v1/session/{id}/event": {
+        "/api/v1/sessions/{id}/events": {
             "get": {
                 "description": "Server-Sent Events stream for real-time session updates",
                 "produces": [
@@ -204,7 +204,7 @@
                 "responses": {}
             }
         },
-        "/api/v1/session/{id}/message": {
+        "/api/v1/sessions/{id}/messages": {
             "post": {
                 "description": "Send a new user message or command to an active session",
                 "consumes": [

@@ -215,7 +215,6 @@ type Checkpoint struct {
     ID        string
     State     *State
     Timestamp time.Time
-    Events    []Event // 自上次 checkpoint 以来的事件
 }
 
 func (r *Runtime) SaveCheckpoint(ctx context.Context) error {
