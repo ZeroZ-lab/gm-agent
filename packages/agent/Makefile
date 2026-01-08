@@ -8,6 +8,10 @@ build:
 	@echo "Building..."
 	go build -o $(BINARY_NAME) ./cmd/gm
 
+dev:
+	@echo "Running..."
+	go run ./cmd/gm/main.go
+
 run: build
 	@echo "Running..."
 	./$(BINARY_NAME)

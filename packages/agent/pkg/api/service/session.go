@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gm-agent-org/gm-agent/pkg/api/dto"
 	"github.com/gm-agent-org/gm-agent/pkg/runtime/permission"
 	"github.com/gm-agent-org/gm-agent/pkg/store"
 	"github.com/gm-agent-org/gm-agent/pkg/types"
@@ -61,6 +62,7 @@ func NewSessionService(factory SessionFactory, log *slog.Logger) *SessionService
 }
 
 // Create creates a new session with the given prompt.
+// If prompt is empty, the session is created but no LLM call is made until a message is sent.
 func (s *SessionService) Create(ctx context.Context, prompt string, systemPrompt string, priority int) (*Session, error) {
 	id := types.GenerateID("ses")
 	resources, err := s.factory(id)
@@ -71,7 +73,7 @@ func (s *SessionService) Create(ctx context.Context, prompt string, systemPrompt
 
 	session := &Session{
 		ID:        id,
-		Status:    "running",
+		Status:    "idle", // idle until first message
 		CreatedAt: time.Now(),
 		Resources: resources,
 	}
@@ -90,19 +92,24 @@ func (s *SessionService) Create(ctx context.Context, prompt string, systemPrompt
 		}
 	}
 
-	// Ingest prompt
-	event := &types.UserMessageEvent{
-		BaseEvent: types.NewBaseEvent("user_request", "user", id),
-		Content:   prompt,
-		Priority:  priority,
-	}
-	if err := resources.Runtime.Ingest(resources.Ctx, event); err != nil {
-		s.log.Error("failed to ingest prompt", "error", err)
-		return nil, err
-	}
+	// Only ingest prompt and start runtime if prompt is not empty
+	if prompt != "" {
+		session.Status = "running"
 
-	// Start runtime in background
-	go s.runSession(session)
+		// Ingest prompt
+		event := &types.UserMessageEvent{
+			BaseEvent: types.NewBaseEvent("user_request", "user", id),
+			Content:   prompt,
+			Priority:  priority,
+		}
+		if err := resources.Runtime.Ingest(resources.Ctx, event); err != nil {
+			s.log.Error("failed to ingest prompt", "error", err)
+			return nil, err
+		}
+
+		// Start runtime in background
+		go s.runSession(session)
+	}
 
 	return session, nil
 }
@@ -182,9 +189,9 @@ func (s *SessionService) Message(ctx context.Context, id string, content string,
 		return nil, err
 	}
 
-	// If session was completed, restart the runtime to process the new message
+	// If session was idle or completed, start/restart the runtime
 	session.mu.Lock()
-	if session.Status == "completed" {
+	if session.Status == "idle" || session.Status == "completed" {
 		session.Status = "running"
 		session.mu.Unlock()
 		go s.runSession(session)
@@ -276,4 +283,96 @@ func (s *SessionService) RespondPermission(id string, requestID string, approved
 	}
 
 	return session.Resources.Permissions.Respond(requestID, approved, always)
+}
+
+// ListCheckpoints returns all checkpoints for a session
+func (s *SessionService) ListCheckpoints(ctx context.Context, id string) (*dto.CheckpointListResponse, error) {
+	session, err := s.Get(id)
+	if err != nil {
+		return nil, err
+	}
+
+	checkpoints, err := session.Resources.Store.ListCheckpoints(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert to response DTOs
+	response := &dto.CheckpointListResponse{
+		Checkpoints: make([]dto.CheckpointResponse, 0, len(checkpoints)),
+	}
+
+	for _, cp := range checkpoints {
+		msgCount := 0
+		if cp.State != nil && cp.State.Context != nil {
+			msgCount = len(cp.State.Context.Messages)
+		}
+		response.Checkpoints = append(response.Checkpoints, dto.CheckpointResponse{
+			ID:           cp.ID,
+			Timestamp:    cp.Timestamp,
+			StateVersion: cp.State.Version,
+			LastEventID:  cp.LastEventID,
+			MessageCount: msgCount,
+		})
+	}
+
+	return response, nil
+}
+
+// Rewind rewinds a session to a previous checkpoint
+func (s *SessionService) Rewind(ctx context.Context, id string, req dto.RewindRequest) (*dto.RewindResponse, error) {
+	session, err := s.Get(id)
+	if err != nil {
+		return nil, err
+	}
+
+	// Load the checkpoint
+	checkpoint, err := session.Resources.Store.LoadCheckpoint(ctx, req.CheckpointID)
+	if err != nil {
+		return &dto.RewindResponse{
+			Success: false,
+			Message: "Checkpoint not found: " + err.Error(),
+		}, nil
+	}
+
+	// TODO: Implement code rewind if requested
+	// For now, we only support conversation rewind
+	if req.RewindCode {
+		return &dto.RewindResponse{
+			Success: false,
+			Message: "Code rewind not yet implemented",
+		}, nil
+	}
+
+	if req.RewindConversation {
+		// Restore the checkpoint state
+		if err := session.Resources.Store.SaveState(ctx, checkpoint.State); err != nil {
+			return &dto.RewindResponse{
+				Success: false,
+				Message: "Failed to restore state: " + err.Error(),
+			}, nil
+		}
+
+		s.log.Info("session rewound to checkpoint",
+			"session_id", id,
+			"checkpoint_id", req.CheckpointID,
+			"state_version", checkpoint.State.Version)
+	}
+
+	msgCount := 0
+	if checkpoint.State != nil && checkpoint.State.Context != nil {
+		msgCount = len(checkpoint.State.Context.Messages)
+	}
+
+	return &dto.RewindResponse{
+		Success: true,
+		Message: "Successfully rewound to checkpoint",
+		RestoredCheckpoint: dto.CheckpointResponse{
+			ID:           checkpoint.ID,
+			Timestamp:    checkpoint.Timestamp,
+			StateVersion: checkpoint.State.Version,
+			LastEventID:  checkpoint.LastEventID,
+			MessageCount: msgCount,
+		},
+	}, nil
 }

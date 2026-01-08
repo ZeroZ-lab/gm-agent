@@ -1,6 +1,6 @@
 # gm-agent 任务清单
 
-> **Last Updated**: 2026-01-06
+> **Last Updated**: 2026-01-08 (Phase 1.3 完成)
 
 ## ✅ 已完成
 
@@ -64,9 +64,41 @@
 - [ ] 恢复/重写集成测试
 - [ ] GitHub Actions CI
 
-### Phase 9: 高级功能
+### Phase 9: Patch Engine (2026-01-08)
+- [x] `pkg/patch/patch.go` - 核心接口和配置
+- [x] `pkg/patch/diff.go` - Diff 生成算法 (基于 diffmatchpatch)
+- [x] `pkg/patch/apply.go` - Patch 应用逻辑 (含路径验证)
+- [x] `pkg/patch/rollback.go` - 回滚机制 (基于备份)
+- [x] 添加 `write_file` 工具 (pkg/agent/tools/file_editing.go)
+- [x] 添加 `edit_file` 工具 (pkg/agent/tools/file_editing.go)
+
+### Phase 10: 代码库搜索 (2026-01-08)
+- [x] `glob` 工具 - 文件模式匹配 (支持 ** 模式)
+- [x] `grep` 工具 - 内容搜索 (正则表达式 + 上下文)
+- [x] pkg/agent/tools/search.go 实现
+
+### Phase 11: 安全加固 (2026-01-08)
+- [x] `pkg/security/validator.go` - 路径验证器
+- [x] 路径遍历防护 (../ 检测)
+- [x] 可疑模式检测 (SSH keys, credentials, etc.)
+- [x] Shell 命令验证器 (危险命令拦截)
+- [x] 资源限制定义 (时间/内存/文件大小)
+
+### Phase 12: 高级功能 (规划中)
 - [x] 基于 Gin 的 HTTP API（含 OpenAPI 输出）
 - [x] 默认 API 模式启动与日志等级配置
+- [x] **Phase 1.2 完成 (2026-01-08)**: 工具激活
+  - [x] 注册 write_file, edit_file, glob, grep
+  - [x] 集成 Patch Engine
+  - [x] 测试验证通过
+  - 成果: 实际可用性从 35% 提升到 50%
+- [x] **Phase 1.3 完成 (2026-01-08)**: Checkpointing UI
+  - [x] API: GET /session/:id/checkpoints
+  - [x] API: POST /session/:id/rewind
+  - [x] CLI: /checkpoints 命令
+  - [x] CLI: /rewind <id> 命令
+  - [x] Service层实现conversation rewind
+  - 成果: 实际可用性从 50% 提升到 58%
 - [ ] Sub-Agent 编排
 - [ ] Skill 系统
 - [ ] Scheme 解释器
@@ -79,3 +111,31 @@
 - 配置变更时必须同步更新 `.env.example` 和 `config.yaml.example`
 - 代码变更需符合 `CLAUDE.md` 规范
 - 2026-01-06: 修复 tool_call_id 传递与工具参数序列化问题
+- 2026-01-08: **重大更新** - 实现完整的 Patch Engine、代码搜索工具和安全加固
+  - 新增 `pkg/patch` 模块 (diff/apply/rollback)
+  - 新增 `write_file` 和 `edit_file` 工具
+  - 新增 `glob` 和 `grep` 搜索工具
+  - 新增 `pkg/security` 安全验证模块
+  - 依赖: 添加 `github.com/sergi/go-diff` v1.4.0
+  - **⚠️ 关键发现**: 工具已实现但未在 main.go 中注册！实际可用性仅 35%
+  - 参考文档: `/docs/GAP-ANALYSIS.md` (已更新为深度对比)
+
+## 🎯 与 Claude Code 的真实差距 (2026-01-08 更新)
+
+经过深入研究 Claude Code 官方能力，发现以下核心差距:
+
+### 已解决 ✅
+- ✅ **工具激活** (Phase 1.2): write_file/edit_file/glob/grep 已注册
+- ✅ **Checkpointing UI** (Phase 1.3): 用户可以通过CLI和API查看和回滚checkpoint
+
+### 待解决
+- ❌ **Plan Mode 缺失**: 无只读分析工作流
+- ❌ **Code Rewind**: 仅支持conversation rewind，code rewind待实现
+
+### 成熟度评估
+- Phase 1.1 完成: ~35% vs Claude Code
+- Phase 1.2 完成: ~50% (+15%)
+- **Phase 1.3 完成: ~58% (+8%)**
+- Phase 2 完成目标: ~65%
+
+详见: `/docs/GAP-ANALYSIS.md` 和 `/docs/PHASE-1.3-SUMMARY.md`

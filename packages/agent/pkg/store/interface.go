@@ -34,6 +34,7 @@ type Store interface {
 	SaveCheckpoint(ctx context.Context, cp *types.Checkpoint) error
 	LoadCheckpoint(ctx context.Context, id string) (*types.Checkpoint, error)
 	LoadLatestCheckpoint(ctx context.Context) (*types.Checkpoint, error)
+	ListCheckpoints(ctx context.Context) ([]types.Checkpoint, error) // New: list all checkpoints
 
 	// Artifact Operations
 	SaveArtifact(ctx context.Context, artifact *types.Artifact) error

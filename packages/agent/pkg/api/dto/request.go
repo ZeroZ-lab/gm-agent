@@ -2,7 +2,7 @@ package dto
 
 // CreateSessionRequest is the request body for creating a new session.
 type CreateSessionRequest struct {
-	Prompt       string `json:"prompt" binding:"required"`
+	Prompt       string `json:"prompt,omitempty"`        // Optional: if empty, session is created without LLM call
 	SystemPrompt string `json:"system_prompt,omitempty"`
 	Priority     int    `json:"priority,omitempty"`
 	Constraints  any    `json:"constraints,omitempty"`

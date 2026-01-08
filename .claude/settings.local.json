@@ -1,7 +1,14 @@
 {
   "permissions": {
     "allow": [
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Bash(go build:*)",
+      "Bash(./gmcli version:*)",
+      "WebSearch",
+      "WebFetch(domain:docs.anthropic.com)",
+      "Bash(cat:*)",
+      "Bash(go test:*)",
+      "Bash(make build)"
     ]
   }
 }

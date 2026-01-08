@@ -35,8 +35,8 @@ func NewSessionHandler(svc *service.SessionService) *SessionHandler {
 func (h *SessionHandler) Create(c *gin.Context) {
 	var req dto.CreateSessionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "prompt is required"})
-		return
+		// Allow empty body for session creation without prompt
+		req = dto.CreateSessionRequest{}
 	}
 
 	session, err := h.svc.Create(c.Request.Context(), req.Prompt, req.SystemPrompt, req.Priority)
@@ -308,4 +308,64 @@ func (h *SessionHandler) SSE(c *gin.Context) {
 			}
 		}
 	}
+}
+
+// ListCheckpoints godoc
+// @Summary      List checkpoints
+// @Description  Retrieve all checkpoints for a session
+// @Tags         session
+// @Produce      json
+// @Param        id path string true "Session ID"
+// @Success      200 {object} dto.CheckpointListResponse
+// @Failure      404 {object} dto.ErrorResponse
+// @Failure      500 {object} dto.ErrorResponse
+// @Router       /api/v1/session/{id}/checkpoints [get]
+func (h *SessionHandler) ListCheckpoints(c *gin.Context) {
+	id := c.Param("id")
+
+	checkpoints, err := h.svc.ListCheckpoints(c.Request.Context(), id)
+	if err != nil {
+		if errors.Is(err, service.ErrSessionNotFound) {
+			c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "session not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, checkpoints)
+}
+
+// Rewind godoc
+// @Summary      Rewind session
+// @Description  Rewind a session to a previous checkpoint
+// @Tags         session
+// @Accept       json
+// @Produce      json
+// @Param        id path string true "Session ID"
+// @Param        request body dto.RewindRequest true "Rewind request"
+// @Success      200 {object} dto.RewindResponse
+// @Failure      400 {object} dto.ErrorResponse
+// @Failure      404 {object} dto.ErrorResponse
+// @Failure      500 {object} dto.ErrorResponse
+// @Router       /api/v1/session/{id}/rewind [post]
+func (h *SessionHandler) Rewind(c *gin.Context) {
+	id := c.Param("id")
+	var req dto.RewindRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "invalid request body"})
+		return
+	}
+
+	result, err := h.svc.Rewind(c.Request.Context(), id, req)
+	if err != nil {
+		if errors.Is(err, service.ErrSessionNotFound) {
+			c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "session not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
 }

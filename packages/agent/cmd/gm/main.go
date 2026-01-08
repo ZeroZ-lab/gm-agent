@@ -20,6 +20,7 @@ import (
 	"github.com/gm-agent-org/gm-agent/pkg/config"
 	"github.com/gm-agent-org/gm-agent/pkg/llm"
 	"github.com/gm-agent-org/gm-agent/pkg/llm/factory"
+	"github.com/gm-agent-org/gm-agent/pkg/patch"
 	"github.com/gm-agent-org/gm-agent/pkg/runtime"
 	"github.com/gm-agent-org/gm-agent/pkg/runtime/permission"
 	"github.com/gm-agent-org/gm-agent/pkg/store"
@@ -131,6 +132,18 @@ func cmdServe(ctx context.Context, logger *slog.Logger, configPath string) error
 	// Pass fsStore to Policy for persistent rules
 	toolPolicy := tool.NewPolicy(cfg.Security, toolRegistry, fsStore)
 
+	// Initialize Patch Engine
+	workingDir, _ = os.Getwd()
+	patchEngine, err := patch.NewEngine(patch.Config{
+		WorkDir:         workingDir,
+		BackupDir:       ".gm-backups",
+		MaxContextLines: 3,
+	})
+	if err != nil {
+		logger.Error("failed to create patch engine", "error", err)
+		return fmt.Errorf("create patch engine: %w", err)
+	}
+
 	// Register Built-in Tools
 	if err := toolRegistry.Register(tools.ReadFileTool); err != nil {
 		panic(err)
@@ -141,6 +154,23 @@ func cmdServe(ctx context.Context, logger *slog.Logger, configPath string) error
 	if err := toolRegistry.Register(tools.RunShellTool); err != nil {
 		panic(err)
 	}
+
+	// New Advanced File Tools (2026-01-08)
+	if err := toolRegistry.Register(tools.WriteFileTool); err != nil {
+		panic(err)
+	}
+	if err := toolRegistry.Register(tools.EditFileTool); err != nil {
+		panic(err)
+	}
+
+	// Search Tools (2026-01-08)
+	if err := toolRegistry.Register(tools.GlobTool); err != nil {
+		panic(err)
+	}
+	if err := toolRegistry.Register(tools.GrepTool); err != nil {
+		panic(err)
+	}
+
 	// Interactive Tools
 	if err := toolRegistry.Register(tools.TalkTool); err != nil {
 		panic(err)
@@ -150,12 +180,22 @@ func cmdServe(ctx context.Context, logger *slog.Logger, configPath string) error
 	}
 
 	// Sub-function to register handlers (avoids duplication)
-	registerHandlers := func(executor *tool.Executor) {
+	registerHandlers := func(executor *tool.Executor, patchEng patch.Engine) {
 		executor.RegisterHandler("read_file", tools.HandleReadFile)
 		executor.RegisterHandler("create_file", tools.HandleCreateFile)
 		executor.RegisterHandler("run_shell", tools.HandleRunShell)
 		executor.RegisterHandler("talk", tools.HandleTalk)
 		executor.RegisterHandler("task_complete", tools.HandleTaskComplete)
+
+		// New handlers with patch engine (2026-01-08)
+		executor.RegisterHandler("write_file", func(ctx context.Context, args string) (string, error) {
+			return tools.HandleWriteFile(ctx, args, patchEng)
+		})
+		executor.RegisterHandler("edit_file", func(ctx context.Context, args string) (string, error) {
+			return tools.HandleEditFile(ctx, args, patchEng)
+		})
+		executor.RegisterHandler("glob", tools.HandleGlob)
+		executor.RegisterHandler("grep", tools.HandleGrep)
 	}
 
 	// 4. Initialize Runtime
@@ -187,7 +227,7 @@ func cmdServe(ctx context.Context, logger *slog.Logger, configPath string) error
 		// Create per-session Executor
 		// We reuse the registry and policy as they are thread-safe and stateless/config-based
 		sessionExecutor := tool.NewExecutor(toolRegistry, toolPolicy)
-		registerHandlers(sessionExecutor)
+		registerHandlers(sessionExecutor, patchEngine)
 
 		// Wire Permission Callback
 		sessionExecutor.SetPermissionCallback(func(ctx context.Context, req tool.PermissionRequest) (bool, error) {

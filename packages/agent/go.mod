@@ -11,11 +11,11 @@ require github.com/sashabaranov/go-openai v1.41.2
 require (
 	github.com/joho/godotenv v1.5.1
 	github.com/kelseyhightower/envconfig v1.4.0
+	github.com/sergi/go-diff v1.4.0
 	github.com/swaggo/files v1.0.1
 	github.com/swaggo/gin-swagger v1.6.1
 	github.com/swaggo/swag v1.16.6
 	google.golang.org/genai v1.40.0
-	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

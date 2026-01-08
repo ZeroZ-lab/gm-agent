@@ -41,35 +41,52 @@ type model struct {
 
 	// Permission state
 	permissionRequest *struct {
-		RequestID  string
-		ToolName   string
-		Permission string
-		Patterns   []string
+		RequestID      string
+		ToolName       string
+		Permission     string
+		Patterns       []string
+		SelectedOption int // 0=Allow once, 1=Deny, 2=Always allow, 3=Deny all
 	}
+
+	// UI enhancements
+	welcomeInfo   WelcomeInfo
+	inputHistory  []string
+	historyIndex  int
+	showStatusBar bool
+	width         int
+	height        int
+	model         string // LLM model name
 }
 
 // Custom Messages
-type sessionCreatedMsg string
+type sessionCreatedMsg struct {
+	sessionID      string
+	pendingMessage string // Message to send after session creation
+}
 type eventMsg client.Event
 type nextEventMsg struct{}
 type permissionHandledMsg struct{}
 
 func initialModel(cfg *Config) model {
 	ta := textarea.New()
-	ta.Placeholder = "Send a message... (Type /new to reset, /exit to quit)"
+	ta.Placeholder = "Ask anything... (Shift+Enter for new line)"
 	ta.Focus()
-	ta.Prompt = "┃ "
+	ta.Prompt = "❯ "
 	ta.CharLimit = 0 // Unlimited
 	ta.SetHeight(3)
 	ta.ShowLineNumbers = false
-	ta.KeyMap.InsertNewline.SetEnabled(false) // Enter sends message
+	// Enable multiline: Shift+Enter inserts newline, Enter sends
+	ta.KeyMap.InsertNewline.SetKeys("shift+enter")
 
 	vp := viewport.New(80, 20)
-	vp.SetContent("Initializing gm-agent...")
+
+	// Get welcome info
+	welcomeInfo := GetWelcomeInfo()
+	vp.SetContent(RenderWelcome(welcomeInfo))
 
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
-	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF6B35"))
 
 	// Initialize API Client
 	apiKey := viper.GetString("api-key")
@@ -90,22 +107,27 @@ func initialModel(cfg *Config) model {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return model{
-		client:   c,
-		textarea: ta,
-		viewport: vp,
-		spinner:  sp,
-		ctx:      ctx,
-		cancel:   cancel,
-		renderer: r,
-		messages: []string{},
+		client:        c,
+		textarea:      ta,
+		viewport:      vp,
+		spinner:       sp,
+		ctx:           ctx,
+		cancel:        cancel,
+		renderer:      r,
+		messages:      []string{},
+		welcomeInfo:   welcomeInfo,
+		inputHistory:  []string{},
+		historyIndex:  -1,
+		showStatusBar: true,
+		model:         "default",
 	}
 }
 
 func (m model) Init() tea.Cmd {
+	// Don't create session on init - wait for first user message
 	return tea.Batch(
 		textarea.Blink,
 		m.spinner.Tick,
-		createSessionCmd(m.client, m.ctx),
 	)
 }
 
@@ -135,6 +157,33 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, submitPermissionCmd(m.client, m.ctx, m.sessionID, m.permissionRequest.RequestID, false, false)
 			case "a", "A":
 				return m, submitPermissionCmd(m.client, m.ctx, m.sessionID, m.permissionRequest.RequestID, true, true)
+			case "d", "D":
+				// Deny all - deny with "always" flag (block future requests)
+				return m, submitPermissionCmd(m.client, m.ctx, m.sessionID, m.permissionRequest.RequestID, false, true)
+			case "up", "k":
+				// Navigate up in options
+				if m.permissionRequest.SelectedOption > 0 {
+					m.permissionRequest.SelectedOption--
+				}
+				return m, nil
+			case "down", "j":
+				// Navigate down in options
+				if m.permissionRequest.SelectedOption < 3 {
+					m.permissionRequest.SelectedOption++
+				}
+				return m, nil
+			case "enter":
+				// Execute selected option
+				switch m.permissionRequest.SelectedOption {
+				case 0: // Allow once
+					return m, submitPermissionCmd(m.client, m.ctx, m.sessionID, m.permissionRequest.RequestID, true, false)
+				case 1: // Deny
+					return m, submitPermissionCmd(m.client, m.ctx, m.sessionID, m.permissionRequest.RequestID, false, false)
+				case 2: // Always allow
+					return m, submitPermissionCmd(m.client, m.ctx, m.sessionID, m.permissionRequest.RequestID, true, true)
+				case 3: // Deny all
+					return m, submitPermissionCmd(m.client, m.ctx, m.sessionID, m.permissionRequest.RequestID, false, true)
+				}
 			}
 			return m, nil // Ignore other keys while waiting for permission
 		}
@@ -142,6 +191,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.Type {
 		case tea.KeyCtrlC, tea.KeyEsc:
 			return m, tea.Quit
+		case tea.KeyUp:
+			// History navigation: previous
+			if len(m.inputHistory) > 0 && !m.waiting {
+				if m.historyIndex < len(m.inputHistory)-1 {
+					m.historyIndex++
+					m.textarea.SetValue(m.inputHistory[len(m.inputHistory)-1-m.historyIndex])
+				}
+			}
+			return m, nil
+		case tea.KeyDown:
+			// History navigation: next
+			if m.historyIndex > 0 {
+				m.historyIndex--
+				m.textarea.SetValue(m.inputHistory[len(m.inputHistory)-1-m.historyIndex])
+			} else if m.historyIndex == 0 {
+				m.historyIndex = -1
+				m.textarea.SetValue("")
+			}
+			return m, nil
 		case tea.KeyEnter:
 			if m.waiting {
 				return m, nil
@@ -151,16 +219,66 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-			// Handle Slash Commands
-			if input == "/exit" || input == "/quit" {
-				return m, tea.Quit
+			// Save to history
+			if len(m.inputHistory) == 0 || m.inputHistory[len(m.inputHistory)-1] != input {
+				m.inputHistory = append(m.inputHistory, input)
 			}
-			if input == "/new" {
+			m.historyIndex = -1
+
+			// Handle Slash Commands
+			switch {
+			case input == "/exit" || input == "/quit":
+				return m, tea.Quit
+			case input == "/new":
 				m.waiting = true
 				m.textarea.Reset()
+				m.messages = []string{}
 				m.messages = append(m.messages, styleSystemMessage("Starting new session..."))
 				m.updateViewport()
 				return m, createSessionCmd(m.client, m.ctx)
+			case input == "/clear":
+				m.textarea.Reset()
+				m.messages = []string{}
+				m.updateViewport()
+				return m, nil
+			case input == "/help":
+				m.textarea.Reset()
+				m.messages = append(m.messages, RenderHelp())
+				m.updateViewport()
+				return m, nil
+			case input == "/history":
+				m.textarea.Reset()
+				historyMsg := styleSystemMsg.Render("Input History:\n")
+				for i, h := range m.inputHistory {
+					historyMsg += fmt.Sprintf("  %d. %s\n", i+1, h)
+				}
+				m.messages = append(m.messages, historyMsg)
+				m.updateViewport()
+				return m, nil
+			case input == "/checkpoints":
+				if m.sessionID == "" {
+					m.messages = append(m.messages, styleSystemMessage("⚠️ No active session"))
+					m.updateViewport()
+					return m, nil
+				}
+				m.textarea.Reset()
+				m.waiting = true
+				return m, listCheckpointsCmd(m.client, m.ctx, m.sessionID)
+			case strings.HasPrefix(input, "/rewind "):
+				if m.sessionID == "" {
+					m.messages = append(m.messages, styleSystemMessage("⚠️ No active session"))
+					m.updateViewport()
+					return m, nil
+				}
+				checkpointID := strings.TrimSpace(strings.TrimPrefix(input, "/rewind "))
+				if checkpointID == "" {
+					m.messages = append(m.messages, styleSystemMessage("⚠️ Usage: /rewind <checkpoint_id>"))
+					m.updateViewport()
+					return m, nil
+				}
+				m.textarea.Reset()
+				m.waiting = true
+				return m, rewindCmd(m.client, m.ctx, m.sessionID, checkpointID)
 			}
 
 			// Add User Message to History
@@ -168,6 +286,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.textarea.Reset()
 			m.waiting = true
 			m.updateViewport()
+
+			// If no session yet, create one first with the message
+			if m.sessionID == "" {
+				return m, createSessionWithMessageCmd(m.client, m.ctx, input)
+			}
 
 			// Send to API
 			return m, sendMessageCmd(m.client, m.ctx, m.sessionID, input)
@@ -181,12 +304,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case sessionCreatedMsg:
-		m.sessionID = string(msg)
+		m.sessionID = msg.sessionID
 		m.waiting = false
 		m.messages = append(m.messages, styleSystemMessage(fmt.Sprintf("Session Started (%s)", m.sessionID)))
 		m.updateViewport()
 		// Start Streaming Events interaction
-		return m, streamEventsCmd(m.client, m.ctx, m.sessionID)
+		cmds := []tea.Cmd{streamEventsCmd(m.client, m.ctx, m.sessionID)}
+		// If there's a pending message, send it now
+		if msg.pendingMessage != "" {
+			m.waiting = true
+			cmds = append(cmds, sendMessageCmd(m.client, m.ctx, m.sessionID, msg.pendingMessage))
+		}
+		return m, tea.Batch(cmds...)
 
 	case streamReadyMsg:
 		m.eventCh = msg.ch
@@ -199,10 +328,48 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateViewport()
 		return m, nil
 
+	case checkpointsListedMsg:
+		m.waiting = false
+		if len(msg.checkpoints) == 0 {
+			m.messages = append(m.messages, styleSystemMessage("📋 No checkpoints found"))
+		} else {
+			cpMsg := styleSystemMsg.Render(fmt.Sprintf("📋 Checkpoints (%d total):\n", len(msg.checkpoints)))
+			for i, cp := range msg.checkpoints {
+				cpMsg += fmt.Sprintf("  %d. ID: %s | Messages: %d | Version: %d | Time: %s\n",
+					i+1, cp.ID, cp.MessageCount, cp.StateVersion, cp.Timestamp.Format("2006-01-02 15:04:05"))
+			}
+			cpMsg += "\nUse '/rewind <checkpoint_id>' to restore a checkpoint"
+			m.messages = append(m.messages, cpMsg)
+		}
+		m.updateViewport()
+		return m, nil
+
+	case rewindCompletedMsg:
+		m.waiting = false
+		if msg.result.Success {
+			successMsg := styleSystemMsg.Render(fmt.Sprintf("✅ %s\n", msg.result.Message))
+			successMsg += fmt.Sprintf("  Restored to: %s (Version: %d, Messages: %d)",
+				msg.result.RestoredCheckpoint.ID,
+				msg.result.RestoredCheckpoint.StateVersion,
+				msg.result.RestoredCheckpoint.MessageCount)
+			m.messages = append(m.messages, successMsg)
+		} else {
+			m.messages = append(m.messages, styleSystemMessage(fmt.Sprintf("❌ %s", msg.result.Message)))
+		}
+		m.updateViewport()
+		return m, nil
+
 	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
 		m.viewport.Width = msg.Width
 		m.textarea.SetWidth(msg.Width)
-		m.viewport.Height = msg.Height - m.textarea.Height() - 2 // Space for input
+		// Account for status bar (1 line) + input area + spinner line
+		statusBarHeight := 1
+		if m.showStatusBar {
+			statusBarHeight = 2
+		}
+		m.viewport.Height = msg.Height - m.textarea.Height() - statusBarHeight - 2
 		m.updateViewport()
 		// Update renderer wrap
 		m.renderer, _ = glamour.NewTermRenderer(
@@ -259,7 +426,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m.messages = append(m.messages, styleAssistantMessage(rendered))
 						}
 					} else {
-						m.messages = append(m.messages, styleSystemMessage(fmt.Sprintf("🛠️  Agent wants to use: %s", tc.Name)))
+						// Parse arguments for card display
+						var argsMap map[string]interface{}
+						json.Unmarshal([]byte(tc.Arguments), &argsMap)
+						m.messages = append(m.messages, RenderToolCall(tc.Name, argsMap, "running"))
 					}
 				}
 			}
@@ -276,11 +446,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 
 				if data.ToolName != "talk" {
-					status := "✅ success"
+					status := "success"
 					if !data.Success {
-						status = fmt.Sprintf("❌ failed: %s", data.Error)
+						status = "error"
 					}
-					m.messages = append(m.messages, styleSystemMessage(fmt.Sprintf("⚙️  Tool %s: %s", data.ToolName, status)))
+					m.messages = append(m.messages, RenderToolCall(data.ToolName, nil, status))
 				}
 			}
 		case "permission_request":
@@ -291,22 +461,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Patterns   []string `json:"patterns"`
 			}
 			if err := json.Unmarshal(msg.Data, &data); err == nil {
-				// Show permission request to user
-				m.messages = append(m.messages, styleSystemMessage(
-					fmt.Sprintf("🔐 Permission requested: %s (%s)\n   Patterns: %v\n   [Press Y to approve, N to deny, A to always allow]",
-						data.ToolName, data.Permission, data.Patterns)))
-
-				// Set pending permission request
+				// Set pending permission request (UI will render it in View)
 				m.permissionRequest = &struct {
-					RequestID  string
-					ToolName   string
-					Permission string
-					Patterns   []string
+					RequestID      string
+					ToolName       string
+					Permission     string
+					Patterns       []string
+					SelectedOption int
 				}{
-					RequestID:  data.RequestID,
-					ToolName:   data.ToolName,
-					Permission: data.Permission,
-					Patterns:   data.Patterns,
+					RequestID:      data.RequestID,
+					ToolName:       data.ToolName,
+					Permission:     data.Permission,
+					Patterns:       data.Patterns,
+					SelectedOption: 0, // Default to "Allow once"
 				}
 			}
 		case "error":
@@ -333,8 +500,12 @@ func (m model) View() string {
 
 	// Spinner / Status
 	if m.permissionRequest != nil {
-		s.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Render(
-			fmt.Sprintf("🔒 Permission Required: %s %v (y/n/a) > ", m.permissionRequest.ToolName, m.permissionRequest.Patterns)))
+		s.WriteString(RenderPermissionRequest(
+			m.permissionRequest.ToolName,
+			m.permissionRequest.Permission,
+			m.permissionRequest.Patterns,
+			m.permissionRequest.SelectedOption,
+		))
 	} else if m.waiting {
 		s.WriteString(m.spinner.View() + " Thinking...\n")
 	} else {
@@ -344,6 +515,12 @@ func (m model) View() string {
 	// Input
 	if m.permissionRequest == nil {
 		s.WriteString(m.textarea.View())
+	}
+
+	// Status bar
+	if m.showStatusBar && m.width > 0 {
+		s.WriteString("\n")
+		s.WriteString(RenderStatusBar(m.sessionID, m.model, m.width))
 	}
 
 	return s.String()
@@ -368,12 +545,17 @@ func submitPermissionCmd(c *client.Client, ctx context.Context, sid, reqID strin
 // Commands
 
 func createSessionCmd(c *client.Client, ctx context.Context) tea.Cmd {
+	return createSessionWithMessageCmd(c, ctx, "")
+}
+
+func createSessionWithMessageCmd(c *client.Client, ctx context.Context, pendingMessage string) tea.Cmd {
 	return func() tea.Msg {
-		sid, err := c.CreateSession(ctx, "Ready to help. What would you like to do?")
+		// Create session with empty prompt - no LLM call until message is sent
+		sid, err := c.CreateSession(ctx, "")
 		if err != nil {
 			return errMsg(err)
 		}
-		return sessionCreatedMsg(sid)
+		return sessionCreatedMsg{sessionID: sid, pendingMessage: pendingMessage}
 	}
 }
 
@@ -417,30 +599,49 @@ func waitForNextEvent(ch <-chan client.Event) tea.Cmd {
 	}
 }
 
-// Logic fix:
-// Init -> createSession -> success(sid) -> streamEvents -> streamReady(ch).
+// Checkpoint messages
+type checkpointsListedMsg struct {
+	checkpoints []client.CheckpointResponse
+}
 
-// We need to add streamReadyMsg handling to Update.
+type rewindCompletedMsg struct {
+	result *client.RewindResponse
+}
+
+// Checkpoint commands
+func listCheckpointsCmd(c *client.Client, ctx context.Context, sid string) tea.Cmd {
+	return func() tea.Msg {
+		resp, err := c.ListCheckpoints(ctx, sid)
+		if err != nil {
+			return errMsg(err)
+		}
+		return checkpointsListedMsg{checkpoints: resp.Checkpoints}
+	}
+}
+
+func rewindCmd(c *client.Client, ctx context.Context, sid string, checkpointID string) tea.Cmd {
+	return func() tea.Msg {
+		// Rewind conversation only for now
+		resp, err := c.Rewind(ctx, sid, checkpointID, false, true)
+		if err != nil {
+			return errMsg(err)
+		}
+		return rewindCompletedMsg{result: resp}
+	}
+}
 
 // Styles
 
 func styleUserMessage(msg string, r *glamour.TermRenderer) string {
-	// return fmt.Sprintf("👤 **You**: %s", msg)
-	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("39")).
-		Render("👤 You:") + "\n" + msg
+	return styleUserLabel.Render("❯ You") + "\n" + msg
 }
 
 func styleAssistantMessage(msg string) string {
-	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("205")).
-		Render("🤖 Assistant:") + "\n" + msg
+	return styleAssistantLabel.Render("◆ Assistant") + "\n" + msg
 }
 
 func styleSystemMessage(msg string) string {
-	return lipgloss.NewStyle().
-		Faint(true).
-		Render(msg)
+	return styleSystemMsg.Render(msg)
 }
 
 // Main Entry Point

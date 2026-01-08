@@ -248,3 +248,67 @@ func (c *Client) SubmitPermission(ctx context.Context, sessionID string, request
 	}
 	return nil
 }
+
+// Checkpoint types
+type CheckpointResponse struct {
+	ID           string    `json:"id"`
+	Timestamp    time.Time `json:"timestamp"`
+	StateVersion int64     `json:"state_version"`
+	LastEventID  string    `json:"last_event_id,omitempty"`
+	Description  string    `json:"description,omitempty"`
+	MessageCount int       `json:"message_count"`
+}
+
+type CheckpointListResponse struct {
+	Checkpoints []CheckpointResponse `json:"checkpoints"`
+}
+
+type RewindRequest struct {
+	CheckpointID       string `json:"checkpoint_id"`
+	RewindCode         bool   `json:"rewind_code"`
+	RewindConversation bool   `json:"rewind_conversation"`
+}
+
+type RewindResponse struct {
+	Success            bool               `json:"success"`
+	Message            string             `json:"message"`
+	RestoredCheckpoint CheckpointResponse `json:"restored_checkpoint"`
+}
+
+// ListCheckpoints gets all checkpoints for a session
+func (c *Client) ListCheckpoints(ctx context.Context, sessionID string) (*CheckpointListResponse, error) {
+	status, body, err := c.Get(ctx, fmt.Sprintf("/api/v1/session/%s/checkpoints", sessionID))
+	if err != nil {
+		return nil, err
+	}
+	if status != 200 {
+		return nil, fmt.Errorf("list checkpoints failed: status=%d body=%s", status, string(body))
+	}
+
+	var resp CheckpointListResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// Rewind rewinds a session to a checkpoint
+func (c *Client) Rewind(ctx context.Context, sessionID string, checkpointID string, rewindCode bool, rewindConversation bool) (*RewindResponse, error) {
+	status, body, err := c.Post(ctx, fmt.Sprintf("/api/v1/session/%s/rewind", sessionID), RewindRequest{
+		CheckpointID:       checkpointID,
+		RewindCode:         rewindCode,
+		RewindConversation: rewindConversation,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if status != 200 {
+		return nil, fmt.Errorf("rewind failed: status=%d body=%s", status, string(body))
+	}
+
+	var resp RewindResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}

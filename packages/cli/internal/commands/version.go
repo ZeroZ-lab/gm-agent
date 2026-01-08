@@ -3,7 +3,9 @@ package commands
 import (
 	"fmt"
 	"os"
+	"runtime"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 )
 
@@ -16,7 +18,20 @@ func NewVersionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print CLI version",
 		Run: func(cmd *cobra.Command, args []string) {
-			_, _ = fmt.Fprintln(os.Stdout, Version)
+			title := lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("#FF6B35")).
+				Render("gm-agent CLI")
+
+			ver := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#7C3AED")).
+				Render(fmt.Sprintf("v%s", Version))
+
+			info := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#6B7280")).
+				Render(fmt.Sprintf("(%s/%s)", runtime.GOOS, runtime.GOARCH))
+
+			fmt.Fprintf(os.Stdout, "%s %s %s\n", title, ver, info)
 		},
 	}
 }

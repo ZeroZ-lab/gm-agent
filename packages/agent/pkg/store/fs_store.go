@@ -369,8 +369,70 @@ func (s *FSStore) LoadLatestCheckpoint(ctx context.Context) (*types.Checkpoint, 
 }
 
 func (s *FSStore) LoadCheckpoint(ctx context.Context, id string) (*types.Checkpoint, error) {
-	// Implementation would need to scan/index files. Skipping for brevity of MVP.
-	return nil, errors.New("not implemented")
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	dir := filepath.Join(s.rootDir, "checkpoints")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	// Search for checkpoint with matching ID
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var cp types.Checkpoint
+		if err := json.Unmarshal(data, &cp); err == nil && cp.ID == id {
+			return &cp, nil
+		}
+	}
+
+	return nil, ErrNotFound
+}
+
+// ListCheckpoints returns all checkpoints sorted by timestamp (newest first)
+func (s *FSStore) ListCheckpoints(ctx context.Context) ([]types.Checkpoint, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	dir := filepath.Join(s.rootDir, "checkpoints")
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) || len(entries) == 0 {
+		return []types.Checkpoint{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Sort by name (timestamp prefix) descending
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Name() > entries[j].Name()
+	})
+
+	checkpoints := make([]types.Checkpoint, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue // Skip unreadable
+		}
+		var cp types.Checkpoint
+		if err := json.Unmarshal(data, &cp); err == nil {
+			checkpoints = append(checkpoints, cp)
+		}
+	}
+
+	return checkpoints, nil
 }
 
 // --- Artifact Operations ---

@@ -7,6 +7,9 @@ all: build
 build:
 	@$(MAKE) -C $(AGENT_DIR) build
 
+dev:
+	@$(MAKE) -C $(AGENT_DIR) dev
+
 run:
 	@$(MAKE) -C $(AGENT_DIR) run
 
