@@ -363,7 +363,9 @@ func RenderHelp() string {
 		{"/clear", "Clear the screen"},
 		{"/history", "Show message history"},
 		{"/checkpoints", "List all checkpoints for current session"},
-		{"/rewind <id>", "Rewind session to a previous checkpoint"},
+		{"/rewind <id>", "Rewind conversation to a checkpoint"},
+		{"/rewind <id> --code", "Rewind code changes only"},
+		{"/rewind <id> --all", "Rewind both code and conversation"},
 		{"/exit, /quit", "Exit the CLI"},
 	}
 

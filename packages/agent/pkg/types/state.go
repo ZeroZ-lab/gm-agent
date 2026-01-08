@@ -43,23 +43,171 @@ func NewState() *State {
 	}
 }
 
-// Clone creates a deep copy of the state (for checkpointing)
-// TODO: Implement deep copy logic
+// Clone creates a deep copy of the state (for checkpointing and reducer immutability)
 func (s *State) Clone() *State {
-	// Placeholder for now, simplistic shallow copy for non-map/slice fields
-	newState := &State{
-		Version:   s.Version,
-		UpdatedAt: s.UpdatedAt,
-		Goals:     make([]Goal, len(s.Goals)),
-		Tasks:     make(map[string]*Task, len(s.Tasks)),
-		Artifacts: make(map[string]*Artifact, len(s.Artifacts)),
-		Locks:     make(map[string]*Lock, len(s.Locks)),
+	if s == nil {
+		return nil
 	}
-	copy(newState.Goals, s.Goals)
-	// Deep copy maps and pointers... this needs full implementation
-	// For MVP compilation, we return a basic structure.
-	// In production, this must deeply copy all pointers.
+
+	newState := &State{
+		Version:      s.Version,
+		UpdatedAt:    s.UpdatedAt,
+		SystemPrompt: s.SystemPrompt,
+		Goals:        make([]Goal, len(s.Goals)),
+		Tasks:        make(map[string]*Task, len(s.Tasks)),
+		Artifacts:    make(map[string]*Artifact, len(s.Artifacts)),
+		Locks:        make(map[string]*Lock, len(s.Locks)),
+	}
+
+	// Deep copy Goals
+	for i, g := range s.Goals {
+		newState.Goals[i] = g.Clone()
+	}
+
+	// Deep copy Tasks map
+	for k, v := range s.Tasks {
+		if v != nil {
+			newState.Tasks[k] = v.Clone()
+		}
+	}
+
+	// Deep copy Artifacts map
+	for k, v := range s.Artifacts {
+		if v != nil {
+			newState.Artifacts[k] = v.Clone()
+		}
+	}
+
+	// Deep copy Locks map
+	for k, v := range s.Locks {
+		if v != nil {
+			lockCopy := *v
+			newState.Locks[k] = &lockCopy
+		}
+	}
+
+	// Deep copy Context
+	if s.Context != nil {
+		newState.Context = s.Context.Clone()
+	}
+
 	return newState
+}
+
+// Clone creates a deep copy of the Goal
+func (g Goal) Clone() Goal {
+	clone := g
+	if g.Deadline != nil {
+		d := *g.Deadline
+		clone.Deadline = &d
+	}
+	return clone
+}
+
+// Clone creates a deep copy of the Task
+func (t *Task) Clone() *Task {
+	if t == nil {
+		return nil
+	}
+	clone := *t
+
+	// Deep copy Inputs map
+	if t.Inputs != nil {
+		clone.Inputs = make(map[string]any, len(t.Inputs))
+		for k, v := range t.Inputs {
+			clone.Inputs[k] = v
+		}
+	}
+
+	// Deep copy Result
+	if t.Result != nil {
+		resultCopy := *t.Result
+		if t.Result.Error != nil {
+			errCopy := *t.Result.Error
+			resultCopy.Error = &errCopy
+		}
+		if t.Result.Artifacts != nil {
+			resultCopy.Artifacts = make([]string, len(t.Result.Artifacts))
+			copy(resultCopy.Artifacts, t.Result.Artifacts)
+		}
+		clone.Result = &resultCopy
+	}
+
+	// Deep copy pointer fields
+	if t.StartedAt != nil {
+		s := *t.StartedAt
+		clone.StartedAt = &s
+	}
+	if t.EndedAt != nil {
+		e := *t.EndedAt
+		clone.EndedAt = &e
+	}
+
+	return &clone
+}
+
+// Clone creates a deep copy of the Artifact
+func (a *Artifact) Clone() *Artifact {
+	if a == nil {
+		return nil
+	}
+	clone := *a
+
+	// Deep copy Content slice
+	if a.Content != nil {
+		clone.Content = make([]byte, len(a.Content))
+		copy(clone.Content, a.Content)
+	}
+
+	// Deep copy Metadata map
+	if a.Metadata != nil {
+		clone.Metadata = make(map[string]string, len(a.Metadata))
+		for k, v := range a.Metadata {
+			clone.Metadata[k] = v
+		}
+	}
+
+	return &clone
+}
+
+// Clone creates a deep copy of the ContextWindow
+func (c *ContextWindow) Clone() *ContextWindow {
+	if c == nil {
+		return nil
+	}
+	clone := &ContextWindow{
+		TotalTokens:     c.TotalTokens,
+		MaxTokens:       c.MaxTokens,
+		ReserveOutput:   c.ReserveOutput,
+		CompactionCount: c.CompactionCount,
+		Messages:        make([]Message, len(c.Messages)),
+	}
+
+	// Deep copy Messages
+	for i, m := range c.Messages {
+		clone.Messages[i] = m.Clone()
+	}
+
+	// Deep copy pointer
+	if c.LastCompactionAt != nil {
+		t := *c.LastCompactionAt
+		clone.LastCompactionAt = &t
+	}
+
+	return clone
+}
+
+// Clone creates a deep copy of the Message
+func (m Message) Clone() Message {
+	clone := m
+
+	// Deep copy ToolCalls slice
+	if m.ToolCalls != nil {
+		clone.ToolCalls = make([]ToolCall, len(m.ToolCalls))
+		copy(clone.ToolCalls, m.ToolCalls)
+	}
+
+	return clone
 }
 
 // Goal represents an objective to be achieved

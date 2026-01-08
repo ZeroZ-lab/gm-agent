@@ -34,7 +34,6 @@ func (r *Runtime) dispatch(ctx context.Context, cmds []types.Command) ([]types.E
 		}
 
 		if err != nil {
-			fmt.Printf("Command Execution Failed: %v\n", err)
 			r.log.Error("command execution failed", "command_id", cmd.CommandID(), "error", err)
 			// Generate ErrorEvent
 			errEvent := &types.ErrorEvent{

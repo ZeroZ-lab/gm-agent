@@ -26,6 +26,14 @@ type ToolResult struct {
 	Error      string `json:"error,omitempty"`
 }
 
+// FileChange represents a file modification that can be reverted
+type FileChange struct {
+	PatchID    string `json:"patch_id"`              // Unique patch identifier
+	FilePath   string `json:"file_path"`             // Relative path to the modified file
+	BackupPath string `json:"backup_path,omitempty"` // Path to backup file
+	Operation  string `json:"operation"`             // "create", "modify", "delete"
+}
+
 // Checkpoint structure
 type Checkpoint struct {
 	ID           string    `json:"id"`
@@ -35,4 +43,8 @@ type Checkpoint struct {
 
 	// Optional embedded state
 	State *State `json:"state,omitempty"`
+
+	// FileChanges tracks all file modifications since the previous checkpoint
+	// Used for Code Rewind functionality
+	FileChanges []FileChange `json:"file_changes,omitempty"`
 }

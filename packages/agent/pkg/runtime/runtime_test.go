@@ -72,6 +72,19 @@ func (m *mockStore) ListArtifacts(ctx context.Context, filter store.ArtifactFilt
 	return nil, nil
 }
 func (m *mockStore) DeleteArtifact(ctx context.Context, id string) error { return nil }
+func (m *mockStore) ListCheckpoints(ctx context.Context) ([]types.Checkpoint, error) {
+	result := make([]types.Checkpoint, len(m.checkpoints))
+	for i, cp := range m.checkpoints {
+		result[i] = *cp
+	}
+	return result, nil
+}
+func (m *mockStore) AddPermissionRule(ctx context.Context, rule types.PermissionRule) error {
+	return nil
+}
+func (m *mockStore) GetPermissionRules(ctx context.Context) ([]types.PermissionRule, error) {
+	return nil, nil
+}
 
 type mockLLM struct{}
 

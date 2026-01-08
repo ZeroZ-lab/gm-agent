@@ -8,7 +8,8 @@
       "WebFetch(domain:docs.anthropic.com)",
       "Bash(cat:*)",
       "Bash(go test:*)",
-      "Bash(make build)"
+      "Bash(make build)",
+      "Bash(make test)"
     ]
   }
 }

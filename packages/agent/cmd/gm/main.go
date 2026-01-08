@@ -280,10 +280,13 @@ func cmdServe(ctx context.Context, logger *slog.Logger, configPath string) error
 		})
 
 		rt := runtime.New(rtConfig, sessionStore, llmGateway, sessionExecutor, logger)
+		// Set file change tracker for Code Rewind support
+		rt.SetFileChangeTracker(patchEngine.GetTracker())
 		return &service.SessionResources{
 			Runtime:     rt,
 			Permissions: permManager,
 			Store:       sessionStore,
+			PatchEngine: patchEngine,
 			Ctx:         sessionCtx,
 			Cancel:      cancel,
 		}, nil

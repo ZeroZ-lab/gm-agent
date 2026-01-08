@@ -347,3 +347,12 @@ func (m *memoryStore) ListArtifacts(ctx context.Context, filter store.ArtifactFi
 	return nil, nil
 }
 func (m *memoryStore) DeleteArtifact(ctx context.Context, id string) error { return nil }
+func (m *memoryStore) ListCheckpoints(ctx context.Context) ([]types.Checkpoint, error) {
+	return nil, nil
+}
+func (m *memoryStore) AddPermissionRule(ctx context.Context, rule types.PermissionRule) error {
+	return nil
+}
+func (m *memoryStore) GetPermissionRules(ctx context.Context) ([]types.PermissionRule, error) {
+	return nil, nil
+}

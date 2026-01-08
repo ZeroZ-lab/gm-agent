@@ -81,6 +81,18 @@ func (e *engine) Apply(ctx context.Context, cmd types.ApplyPatchCommand) (*Apply
 			result.Error = fmt.Sprintf("failed to write file: %v", err)
 			return result, fmt.Errorf("failed to write file: %w", err)
 		}
+
+		// Record file change for checkpoint tracking
+		operation := "modify"
+		if currentContent == "" {
+			operation = "create"
+		}
+		e.tracker.Record(types.FileChange{
+			PatchID:    patchID,
+			FilePath:   cmd.FilePath,
+			BackupPath: backupPath,
+			Operation:  operation,
+		})
 	}
 
 	return result, nil

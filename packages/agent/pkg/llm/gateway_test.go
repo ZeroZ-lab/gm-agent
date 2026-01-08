@@ -16,11 +16,11 @@ func (stubProvider) Call(ctx context.Context, req *ProviderRequest) (*ProviderRe
 	return &ProviderResponse{Model: req.Model, Content: "ok", ToolCalls: []types.ToolCall{{Name: req.Tools[0].Name}}, Usage: types.Usage{TotalTokens: 1}}, nil
 }
 
-func (stubProvider) CallStream(ctx context.Context, req *ProviderRequest) (<-chan string, error) {
-	ch := make(chan string)
+func (stubProvider) CallStream(ctx context.Context, req *ProviderRequest) (<-chan StreamChunk, error) {
+	ch := make(chan StreamChunk)
 	go func() {
 		defer close(ch)
-		ch <- "ok"
+		ch <- StreamChunk{Content: "ok"}
 	}()
 	return ch, nil
 }

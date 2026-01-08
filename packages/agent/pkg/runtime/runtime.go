@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gm-agent-org/gm-agent/pkg/patch"
 	"github.com/gm-agent-org/gm-agent/pkg/store"
 	"github.com/gm-agent-org/gm-agent/pkg/types"
 )
@@ -28,18 +29,42 @@ var DefaultConfig = Config{
 }
 
 type Runtime struct {
-	config Config
-	store  store.Store
-	llm    LLMGateway
-	tools  ToolExecutor
-	log    *slog.Logger
+	config  Config
+	store   store.Store
+	llm     LLMGateway
+	tools   ToolExecutor
+	log     *slog.Logger
+	tracker patch.FileChangeTracker // Optional: for Code Rewind support
 
 	state *types.State
 
 	// Pending commands from Reducer that need to be executed
 	pendingCommands []types.Command
 
-	mu sync.Mutex
+	mu sync.RWMutex
+}
+
+// swapPendingCommands atomically retrieves and clears pending commands
+func (r *Runtime) swapPendingCommands() []types.Command {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cmds := r.pendingCommands
+	r.pendingCommands = nil
+	return cmds
+}
+
+// appendPendingCommands atomically appends commands
+func (r *Runtime) appendPendingCommands(cmds []types.Command) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.pendingCommands = append(r.pendingCommands, cmds...)
+}
+
+// updateState atomically updates state
+func (r *Runtime) updateState(newState *types.State) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.state = newState
 }
 
 func New(cfg Config, s store.Store, llm LLMGateway, tools ToolExecutor, logger *slog.Logger) *Runtime {
@@ -54,6 +79,13 @@ func New(cfg Config, s store.Store, llm LLMGateway, tools ToolExecutor, logger *
 		log:    logger,
 		state:  types.NewState(),
 	}
+}
+
+// SetFileChangeTracker sets the file change tracker for Code Rewind support
+func (r *Runtime) SetFileChangeTracker(tracker patch.FileChangeTracker) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.tracker = tracker
 }
 
 // Run executes the main loop
@@ -75,10 +107,9 @@ func (r *Runtime) Run(ctx context.Context) error {
 		r.log.Info("step started", "step", step)
 
 		// 2.2 Handle pending commands (from Reducer side-effects)
-		if len(r.pendingCommands) > 0 {
-			cmds := r.pendingCommands
-			r.pendingCommands = nil // Clear pending
-
+		// Use atomic accessor for thread safety
+		cmds := r.swapPendingCommands()
+		if len(cmds) > 0 {
 			r.log.Info("executing pending commands", "count", len(cmds))
 			events, err := r.dispatch(ctx, cmds)
 			if err != nil {
@@ -157,7 +188,11 @@ func (r *Runtime) Run(ctx context.Context) error {
 
 func (r *Runtime) gracefulShutdown(ctx context.Context) error {
 	r.log.Info("shutting down...")
-	return r.checkpoint(ctx)
+	// Use a fresh context with timeout to ensure checkpoint can complete
+	// even if the original context is cancelled
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return r.checkpoint(shutdownCtx)
 }
 
 func (r *Runtime) recover(ctx context.Context) error {
@@ -171,17 +206,23 @@ func (r *Runtime) recover(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	r.state = state
+	r.updateState(state)
 	r.log.Info("state recovered", "version", state.Version)
 	return nil
 }
 
 func (r *Runtime) selectGoal() (*types.Goal, error) {
+	// Thread-safe goal selection with RLock
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
 	// Simple FIFO: return first Pending or InProgress goal
 	for i := range r.state.Goals {
 		g := &r.state.Goals[i]
 		if g.Status == types.GoalStatusPending || g.Status == types.GoalStatusInProgress {
-			return g, nil
+			// Return a copy to avoid external mutation
+			goalCopy := *g
+			return &goalCopy, nil
 		}
 	}
 	return nil, nil
@@ -202,8 +243,8 @@ func (r *Runtime) Ingest(ctx context.Context, event types.Event) error {
 		return err
 	}
 
-	// Apply to Memory State
-	if err := r.applyEvent(ctx, event); err != nil {
+	// Apply to Memory State (using locked version since we already hold the lock)
+	if err := r.applyEventLocked(ctx, event); err != nil {
 		return err
 	}
 
@@ -212,12 +253,16 @@ func (r *Runtime) Ingest(ctx context.Context, event types.Event) error {
 }
 
 func (r *Runtime) decide(ctx context.Context, goal *types.Goal) (*Decision, error) {
-	// Construct messages from context
+	// Thread-safe: get a snapshot of state data while holding lock
+	r.mu.RLock()
 	messages := make([]types.Message, len(r.state.Context.Messages))
-	copy(messages, r.state.Context.Messages)
+	for i, m := range r.state.Context.Messages {
+		messages[i] = m.Clone()
+	}
+	systemPrompt := r.state.SystemPrompt
+	r.mu.RUnlock()
 
 	// Add System Prompt with Goal
-	systemPrompt := r.state.SystemPrompt
 	if systemPrompt == "" {
 		systemPrompt = fmt.Sprintf(`You are an AI coding assistant. You help users with software engineering tasks through conversation.
 
@@ -262,23 +307,35 @@ When the user's request is fully addressed, use 'task_complete'.`, goal.Descript
 }
 
 func (r *Runtime) checkpoint(ctx context.Context) error {
+	// Thread-safe: get a deep copy of state while holding lock
+	r.mu.RLock()
+	stateCopy := r.state.Clone()
+	r.mu.RUnlock()
+
+	// Collect file changes from tracker if available
+	var fileChanges []types.FileChange
+	if r.tracker != nil {
+		fileChanges = r.tracker.Flush()
+	}
+
 	cp := &types.Checkpoint{
 		ID:           types.GenerateID("ckpt"),
-		StateVersion: r.state.Version,
+		StateVersion: stateCopy.Version,
 		Timestamp:    time.Now(),
-		State:        r.state, // Embedding state for FS Store simplicity
+		State:        stateCopy, // Use the cloned state
+		FileChanges:  fileChanges,
 	}
 	// Save State first
-	if err := r.store.SaveState(ctx, r.state); err != nil {
+	if err := r.store.SaveState(ctx, stateCopy); err != nil {
 		return err
 	}
 	// Save CP
 	return r.store.SaveCheckpoint(ctx, cp)
 }
 
-// GetState returns the current state (thread-safe shallow copy for reading)
+// GetState returns a deep copy of the current state (thread-safe)
 func (r *Runtime) GetState() *types.State {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.state
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.state.Clone()
 }

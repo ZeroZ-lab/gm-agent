@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gm-agent-org/gm-agent/pkg/api/dto"
+	"github.com/gm-agent-org/gm-agent/pkg/patch"
 	"github.com/gm-agent-org/gm-agent/pkg/runtime/permission"
 	"github.com/gm-agent-org/gm-agent/pkg/store"
 	"github.com/gm-agent-org/gm-agent/pkg/types"
@@ -28,6 +29,7 @@ type SessionResources struct {
 	Runtime     RuntimeRunner
 	Permissions *permission.Manager
 	Store       store.Store
+	PatchEngine patch.Engine // For Code Rewind support
 	Ctx         context.Context
 	Cancel      context.CancelFunc
 }
@@ -335,13 +337,69 @@ func (s *SessionService) Rewind(ctx context.Context, id string, req dto.RewindRe
 		}, nil
 	}
 
-	// TODO: Implement code rewind if requested
-	// For now, we only support conversation rewind
+	// Code rewind: restore files from backups
 	if req.RewindCode {
-		return &dto.RewindResponse{
-			Success: false,
-			Message: "Code rewind not yet implemented",
-		}, nil
+		if session.Resources.PatchEngine == nil {
+			return &dto.RewindResponse{
+				Success: false,
+				Message: "Code rewind not available: patch engine not configured",
+			}, nil
+		}
+
+		// Get all checkpoints after the target checkpoint to find file changes to revert
+		allCheckpoints, err := session.Resources.Store.ListCheckpoints(ctx)
+		if err != nil {
+			return &dto.RewindResponse{
+				Success: false,
+				Message: "Failed to list checkpoints: " + err.Error(),
+			}, nil
+		}
+
+		// Collect all file changes that happened AFTER the target checkpoint
+		// We need to revert these in reverse chronological order
+		var changesToRevert []types.FileChange
+		foundTarget := false
+		for _, cp := range allCheckpoints {
+			if cp.ID == checkpoint.ID {
+				foundTarget = true
+				break
+			}
+			// This checkpoint is after our target, collect its file changes
+			changesToRevert = append(changesToRevert, cp.FileChanges...)
+		}
+
+		if !foundTarget {
+			return &dto.RewindResponse{
+				Success: false,
+				Message: "Target checkpoint not found in checkpoint list",
+			}, nil
+		}
+
+		// Rollback each file change using patch engine
+		var rollbackErrors []string
+		for i := len(changesToRevert) - 1; i >= 0; i-- {
+			change := changesToRevert[i]
+			if err := session.Resources.PatchEngine.Rollback(ctx, change.PatchID); err != nil {
+				rollbackErrors = append(rollbackErrors,
+					"Failed to rollback "+change.FilePath+": "+err.Error())
+			} else {
+				s.log.Info("rolled back file change",
+					"patch_id", change.PatchID,
+					"file", change.FilePath)
+			}
+		}
+
+		if len(rollbackErrors) > 0 {
+			return &dto.RewindResponse{
+				Success: false,
+				Message: "Code rewind partially failed: " + rollbackErrors[0],
+			}, nil
+		}
+
+		s.log.Info("code rewind completed",
+			"session_id", id,
+			"checkpoint_id", req.CheckpointID,
+			"files_reverted", len(changesToRevert))
 	}
 
 	if req.RewindConversation {
@@ -364,9 +422,18 @@ func (s *SessionService) Rewind(ctx context.Context, id string, req dto.RewindRe
 		msgCount = len(checkpoint.State.Context.Messages)
 	}
 
+	message := "Successfully rewound"
+	if req.RewindCode && req.RewindConversation {
+		message = "Successfully rewound code and conversation"
+	} else if req.RewindCode {
+		message = "Successfully rewound code"
+	} else if req.RewindConversation {
+		message = "Successfully rewound conversation"
+	}
+
 	return &dto.RewindResponse{
 		Success: true,
-		Message: "Successfully rewound to checkpoint",
+		Message: message,
 		RestoredCheckpoint: dto.CheckpointResponse{
 			ID:           checkpoint.ID,
 			Timestamp:    checkpoint.Timestamp,

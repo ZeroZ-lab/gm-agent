@@ -24,6 +24,9 @@ type Engine interface {
 
 	// ListBackups returns all available backups
 	ListBackups() ([]BackupInfo, error)
+
+	// GetTracker returns the file change tracker for checkpoint integration
+	GetTracker() FileChangeTracker
 }
 
 // ApplyResult contains the result of a patch operation
@@ -90,11 +93,18 @@ func NewEngine(cfg Config) (Engine, error) {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 	return &engine{
-		cfg: cfg,
+		cfg:     cfg,
+		tracker: NewFileChangeTracker(),
 	}, nil
 }
 
 // engine is the default implementation
 type engine struct {
-	cfg Config
+	cfg     Config
+	tracker FileChangeTracker
+}
+
+// GetTracker returns the file change tracker for checkpoint integration
+func (e *engine) GetTracker() FileChangeTracker {
+	return e.tracker
 }

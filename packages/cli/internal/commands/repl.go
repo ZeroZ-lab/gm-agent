@@ -270,15 +270,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.updateViewport()
 					return m, nil
 				}
-				checkpointID := strings.TrimSpace(strings.TrimPrefix(input, "/rewind "))
-				if checkpointID == "" {
-					m.messages = append(m.messages, styleSystemMessage("⚠️ Usage: /rewind <checkpoint_id>"))
+				// Parse /rewind <checkpoint_id> [--code] [--all]
+				args := strings.TrimSpace(strings.TrimPrefix(input, "/rewind "))
+				parts := strings.Fields(args)
+				if len(parts) == 0 {
+					m.messages = append(m.messages, styleSystemMessage("⚠️ Usage: /rewind <checkpoint_id> [--code] [--all]"))
 					m.updateViewport()
 					return m, nil
 				}
+				checkpointID := parts[0]
+				rewindCode := false
+				rewindConversation := true // default: rewind conversation
+				for _, p := range parts[1:] {
+					switch p {
+					case "--code":
+						rewindCode = true
+						rewindConversation = false // Only code if --code alone
+					case "--all":
+						rewindCode = true
+						rewindConversation = true
+					}
+				}
 				m.textarea.Reset()
 				m.waiting = true
-				return m, rewindCmd(m.client, m.ctx, m.sessionID, checkpointID)
+				return m, rewindCmd(m.client, m.ctx, m.sessionID, checkpointID, rewindCode, rewindConversation)
 			}
 
 			// Add User Message to History
@@ -338,7 +353,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cpMsg += fmt.Sprintf("  %d. ID: %s | Messages: %d | Version: %d | Time: %s\n",
 					i+1, cp.ID, cp.MessageCount, cp.StateVersion, cp.Timestamp.Format("2006-01-02 15:04:05"))
 			}
-			cpMsg += "\nUse '/rewind <checkpoint_id>' to restore a checkpoint"
+			cpMsg += "\nUse '/rewind <checkpoint_id>' to restore (add --code or --all for code rewind)"
 			m.messages = append(m.messages, cpMsg)
 		}
 		m.updateViewport()
@@ -619,10 +634,9 @@ func listCheckpointsCmd(c *client.Client, ctx context.Context, sid string) tea.C
 	}
 }
 
-func rewindCmd(c *client.Client, ctx context.Context, sid string, checkpointID string) tea.Cmd {
+func rewindCmd(c *client.Client, ctx context.Context, sid string, checkpointID string, rewindCode bool, rewindConversation bool) tea.Cmd {
 	return func() tea.Msg {
-		// Rewind conversation only for now
-		resp, err := c.Rewind(ctx, sid, checkpointID, false, true)
+		resp, err := c.Rewind(ctx, sid, checkpointID, rewindCode, rewindConversation)
 		if err != nil {
 			return errMsg(err)
 		}
