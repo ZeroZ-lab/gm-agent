@@ -5,12 +5,14 @@ package integration_test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/gm-agent-org/gm-agent/pkg/config"
+	"github.com/gm-agent-org/gm-agent/pkg/llm"
 	"github.com/gm-agent-org/gm-agent/pkg/runtime"
 	"github.com/gm-agent-org/gm-agent/pkg/store"
 	"github.com/gm-agent-org/gm-agent/pkg/tool"
@@ -19,8 +21,8 @@ import (
 
 type scriptedGateway struct{ toolName string }
 
-func (g scriptedGateway) Chat(ctx context.Context, req *runtime.ChatRequest) (*runtime.ChatResponse, error) {
-	return &runtime.ChatResponse{
+func (g scriptedGateway) Chat(ctx context.Context, req *llm.ChatRequest) (*llm.ChatResponse, error) {
+	return &llm.ChatResponse{
 		Model: "scripted-model",
 		ToolCalls: []types.ToolCall{{
 			ID:        "call-1",
@@ -28,6 +30,11 @@ func (g scriptedGateway) Chat(ctx context.Context, req *runtime.ChatRequest) (*r
 			Arguments: "{}",
 		}},
 	}, nil
+}
+
+func (g scriptedGateway) StreamChat(ctx context.Context, req *llm.ChatRequest) (<-chan llm.StreamChunk, error) {
+	// Return error to fallback to sync Chat
+	return nil, fmt.Errorf("streaming not supported")
 }
 
 func TestEndToEndGoalCompletion(t *testing.T) {
@@ -40,7 +47,7 @@ func TestEndToEndGoalCompletion(t *testing.T) {
 	}
 
 	registry := tool.NewRegistry()
-	policy := tool.NewPolicy(config.SecurityConfig{AutoApprove: true}, registry)
+	policy := tool.NewPolicy(config.SecurityConfig{AutoApprove: true}, registry, fsStore)
 	executor := tool.NewExecutor(registry, policy)
 
 	taskCompleteTool := types.Tool{Name: "task_complete", Description: "mark work done", Parameters: types.JSONSchema{"type": "object"}}
