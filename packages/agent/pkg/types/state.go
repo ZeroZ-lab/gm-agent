@@ -12,6 +12,10 @@ type State struct {
 	// System Configuration
 	SystemPrompt string `json:"system_prompt,omitempty"`
 
+	// Runtime Mode Control
+	Mode        RuntimeMode `json:"mode,omitempty"`         // Current runtime mode (planning/executing)
+	PlanContent string      `json:"plan_content,omitempty"` // Generated plan during planning mode
+
 	// Goal Management
 	Goals []Goal `json:"goals"` // List of goals (sorted by priority)
 
@@ -53,6 +57,8 @@ func (s *State) Clone() *State {
 		Version:      s.Version,
 		UpdatedAt:    s.UpdatedAt,
 		SystemPrompt: s.SystemPrompt,
+		Mode:         s.Mode,
+		PlanContent:  s.PlanContent,
 		Goals:        make([]Goal, len(s.Goals)),
 		Tasks:        make(map[string]*Task, len(s.Tasks)),
 		Artifacts:    make(map[string]*Artifact, len(s.Artifacts)),

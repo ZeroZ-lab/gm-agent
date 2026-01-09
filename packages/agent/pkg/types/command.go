@@ -77,3 +77,11 @@ type RestoreBackupCommand struct {
 	BaseCommand
 	PatchID string `json:"patch_id"`
 }
+
+// ModeTransitionCommand triggers a transition between runtime modes
+type ModeTransitionCommand struct {
+	BaseCommand
+	FromMode RuntimeMode `json:"from_mode"`
+	ToMode   RuntimeMode `json:"to_mode"`
+	Reason   string      `json:"reason"`
+}

@@ -137,7 +137,10 @@ func (r *Runtime) executeCallTool(ctx context.Context, cmd *types.CallToolComman
 		Arguments: argsJSON,
 	}
 
-	result, err := r.tools.Execute(ctx, call)
+	// Get current runtime mode
+	currentMode := r.getCurrentMode()
+
+	result, err := r.tools.Execute(ctx, currentMode, call)
 
 	var resEvent *types.ToolResultEvent
 	if err != nil {

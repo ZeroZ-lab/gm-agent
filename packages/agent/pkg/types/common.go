@@ -4,6 +4,14 @@ import (
 	"github.com/oklog/ulid/v2"
 )
 
+// RuntimeMode represents the current operational mode of the runtime
+type RuntimeMode string
+
+const (
+	ModePlanning  RuntimeMode = "planning"  // Read-only exploration and planning
+	ModeExecuting RuntimeMode = "executing" // Full tool access
+)
+
 // ErrorSeverity defines the severity of an error for classification
 type ErrorSeverity string
 

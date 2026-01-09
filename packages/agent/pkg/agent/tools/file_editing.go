@@ -32,6 +32,7 @@ var WriteFileTool = types.Tool{
 	Metadata: map[string]string{
 		"category": "filesystem",
 	},
+	ReadOnly: false, // File modification operation
 }
 
 // EditFileTool applies precise edits to a file using diff/patch
@@ -59,6 +60,7 @@ var EditFileTool = types.Tool{
 	Metadata: map[string]string{
 		"category": "filesystem",
 	},
+	ReadOnly: false, // File modification operation
 }
 
 type WriteFileArgs struct {

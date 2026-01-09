@@ -15,7 +15,7 @@ type LLMGateway interface {
 
 // ToolExecutor defines the interface for tool execution
 type ToolExecutor interface {
-	Execute(ctx context.Context, call *types.ToolCall) (*types.ToolResult, error)
+	Execute(ctx context.Context, mode types.RuntimeMode, call *types.ToolCall) (*types.ToolResult, error)
 	List() []types.Tool
 }
 

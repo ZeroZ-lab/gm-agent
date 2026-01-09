@@ -67,6 +67,18 @@ func (r *Runtime) updateState(newState *types.State) {
 	r.state = newState
 }
 
+// getCurrentMode returns the current runtime mode
+// Defaults to ModeExecuting for backward compatibility
+func (r *Runtime) getCurrentMode() types.RuntimeMode {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if r.state.Mode == "" {
+		return types.ModeExecuting // Backward compatibility
+	}
+	return r.state.Mode
+}
+
 func New(cfg Config, s store.Store, llm LLMGateway, tools ToolExecutor, logger *slog.Logger) *Runtime {
 	if logger == nil {
 		logger = slog.Default()

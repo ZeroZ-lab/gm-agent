@@ -28,6 +28,7 @@ var ReadFileTool = types.Tool{
 	Metadata: map[string]string{
 		"category": "filesystem",
 	},
+	ReadOnly: true, // Read-only operation, safe for planning mode
 }
 
 var RunShellTool = types.Tool{
@@ -46,6 +47,7 @@ var RunShellTool = types.Tool{
 	Metadata: map[string]string{
 		"category": "shell",
 	},
+	ReadOnly: false, // Shell commands can modify system state
 }
 
 // Implementations
@@ -120,6 +122,7 @@ var CreateFileTool = types.Tool{
 	Metadata: map[string]string{
 		"category": "filesystem",
 	},
+	ReadOnly: false, // File modification operation
 }
 
 type CreateFileArgs struct {

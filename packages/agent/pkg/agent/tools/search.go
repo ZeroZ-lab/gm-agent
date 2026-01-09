@@ -39,6 +39,7 @@ var GlobTool = types.Tool{
 	Metadata: map[string]string{
 		"category": "search",
 	},
+	ReadOnly: true, // Read-only search operation, safe for planning mode
 }
 
 // GrepTool searches for content within files
@@ -83,6 +84,7 @@ var GrepTool = types.Tool{
 	Metadata: map[string]string{
 		"category": "search",
 	},
+	ReadOnly: true, // Read-only search operation, safe for planning mode
 }
 
 type GlobArgs struct {

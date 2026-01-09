@@ -47,15 +47,15 @@ func (e *Executor) RegisterHandler(name string, handler Handler) {
 	e.handlers[name] = handler
 }
 
-func (e *Executor) Execute(ctx context.Context, call *types.ToolCall) (*types.ToolResult, error) {
+func (e *Executor) Execute(ctx context.Context, mode types.RuntimeMode, call *types.ToolCall) (*types.ToolResult, error) {
 	// 1. Lookup Tool Definition
 	toolDef, ok := e.registry.Get(call.Name)
 	if !ok {
 		return nil, fmt.Errorf("tool not found: %s", call.Name)
 	}
 
-	// 2. Check Policy
-	action, err := e.policy.Check(ctx, call.Name, call.Arguments)
+	// 2. Check Policy (with mode)
+	action, err := e.policy.Check(ctx, mode, call.Name, call.Arguments)
 	if err != nil {
 		return nil, err
 	}

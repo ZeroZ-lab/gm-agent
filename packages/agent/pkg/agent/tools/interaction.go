@@ -23,6 +23,7 @@ var TalkTool = types.Tool{
 		},
 		"required": []string{"message"},
 	},
+	ReadOnly: true, // Output-only operation, safe for planning mode
 }
 
 var TaskCompleteTool = types.Tool{
@@ -38,6 +39,7 @@ var TaskCompleteTool = types.Tool{
 		},
 		"required": []string{"summary"},
 	},
+	ReadOnly: false, // Task completion changes system state
 }
 
 // Implementations

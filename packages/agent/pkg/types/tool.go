@@ -8,6 +8,7 @@ type Tool struct {
 	Description string            `json:"description"`
 	Parameters  JSONSchema        `json:"parameters"`
 	Metadata    map[string]string `json:"metadata,omitempty"`
+	ReadOnly    bool              `json:"read_only"` // Whether this tool is read-only (safe for planning mode)
 }
 
 // ToolCall represents an invocation request from LLM

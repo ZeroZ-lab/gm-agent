@@ -38,8 +38,19 @@ func NewPolicy(cfg config.SecurityConfig, registry *Registry, store PermissionRe
 	}
 }
 
-func (p *Policy) Check(ctx context.Context, toolName string, args string) (PolicyAction, error) {
-	// 1. Check Whitelist (if non-empty)
+func (p *Policy) Check(ctx context.Context, mode types.RuntimeMode, toolName string, args string) (PolicyAction, error) {
+	// 1. Mode-based restriction (HIGHEST PRIORITY)
+	// In planning mode, only allow read-only tools
+	if mode == types.ModePlanning {
+		if t, ok := p.registry.Get(toolName); ok && !t.ReadOnly {
+			return PolicyDeny, fmt.Errorf(
+				"tool %s requires write access and cannot be used in planning mode",
+				toolName,
+			)
+		}
+	}
+
+	// 2. Check Whitelist (if non-empty)
 	// If AllowedTools is specified, ONLY allow listed tools.
 	if len(p.config.AllowedTools) > 0 {
 		found := false

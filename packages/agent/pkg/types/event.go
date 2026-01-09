@@ -119,3 +119,32 @@ type PermissionResponseEvent struct {
 	Approved  bool   `json:"approved"`
 	Always    bool   `json:"always"` // If true, always allow this pattern
 }
+
+// PlanGeneratedEvent is emitted when the LLM generates a plan
+type PlanGeneratedEvent struct {
+	BaseEvent
+	GoalID      string `json:"goal_id"`
+	PlanContent string `json:"plan_content"`
+	Tasks       []Task `json:"tasks,omitempty"` // Proposed task breakdown
+}
+
+// PlanApprovedEvent is emitted when user approves a plan
+type PlanApprovedEvent struct {
+	BaseEvent
+	GoalID string `json:"goal_id"`
+}
+
+// PlanRejectedEvent is emitted when user rejects a plan
+type PlanRejectedEvent struct {
+	BaseEvent
+	GoalID   string `json:"goal_id"`
+	Feedback string `json:"feedback,omitempty"` // User feedback for replanning
+}
+
+// ModeTransitionEvent is emitted when runtime mode changes
+type ModeTransitionEvent struct {
+	BaseEvent
+	FromMode RuntimeMode `json:"from_mode"`
+	ToMode   RuntimeMode `json:"to_mode"`
+	Reason   string      `json:"reason"`
+}
